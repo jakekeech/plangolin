@@ -31,13 +31,26 @@ In Claude Code:
 ```
 /plugin marketplace add jakekeech/plangolin
 /plugin install plangolin
-/reload-plugins
 ```
 
-`/reload-plugins` is not optional — a plugin's skills are read when the session
-starts, so without it `/plangolin` will not exist until you open a new one. It
-reports `0 skills` either way; that count only covers `commands/`, and the skill
-still loaded.
+**Then restart Claude Code** — not `/reload-plugins`. A reload rebuilds a
+plugin's `commands/`, and plangolin ships a skill, so it reports success, says
+`0 skills`, and leaves `/plangolin` pointing at whatever loaded when the session
+started. That is a known bug with a traced cause — the skills emitter is not
+fired during a reload
+([#35641](https://github.com/anthropics/claude-code/issues/35641),
+[#37862](https://github.com/anthropics/claude-code/issues/37862)). Skills are
+registered at session start, so a new session is the step that works.
+
+The same applies after every update, and it is worth saying plainly because the
+failure is silent — no error, just the previous behaviour. The sheet prints the
+build it is running along the bottom; if that is not the version you installed,
+the session has not picked it up yet.
+
+If `/plugin` shows an empty list straight after installing, that is
+[#10565](https://github.com/anthropics/claude-code/issues/10565), and the
+install is fine. `claude plugin list` in a terminal reads the same files and
+will show it.
 
 Otherwise that is everything. The plugin carries the whole tool — there is
 nothing to `npm install`, no API key to configure, and no build step.
