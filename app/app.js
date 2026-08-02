@@ -2416,7 +2416,18 @@
           ? idle.length + " plan step" + (idle.length > 1 ? "s" : "") +
             " change nothing about the shape of your system and stay as written."
           : "");
-      document.getElementById("plan-quote").textContent = "";
+      /* The steps themselves, not only how many. This number is the one the
+         whole product turns on — it says how much of a long plan you are
+         entitled to skim — and a count you cannot check is a claim, not
+         evidence. The list panel this replaced could open them; losing that
+         made the most important figure on screen the least verifiable. */
+      const byStep = new Map((plan.steps || []).map((x) => [x.n, x.text]));
+      const sorted = idle.slice().sort((a, b) => a - b);
+      document.getElementById("plan-quote").innerHTML = sorted.length
+        ? "<details><summary>which steps those are</summary><ol>" +
+          sorted.map((n) => '<li value="' + n + '">' + esc(byStep.get(n) || "") + "</li>").join("") +
+          "</ol></details>"
+        : "";
       foot.dataset.stage = "summary";
     } else {
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;

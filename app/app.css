@@ -1269,6 +1269,11 @@
     font-size: 12px; font-style: italic; color: var(--ink-soft); line-height: 1.45;
   }
   .plan-quote:empty { display: none; }
+  .plan-quote ol {
+    margin: 6px 0 0; padding-left: 1.4rem;
+    font-size: 12px; color: var(--ink-soft); line-height: 1.5;
+  }
+  .plan-quote li { margin-bottom: 3px; }
 
   .plan-foot {
     display: flex; align-items: center; gap: 7px;
