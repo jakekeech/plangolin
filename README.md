@@ -31,10 +31,16 @@ In Claude Code:
 ```
 /plugin marketplace add jakekeech/plangolin
 /plugin install plangolin
+/reload-plugins
 ```
 
-That is everything. The plugin carries the whole tool — there is nothing to
-`npm install`, no API key to configure, and no build step.
+`/reload-plugins` is not optional — a plugin's skills are read when the session
+starts, so without it `/plangolin` will not exist until you open a new one. It
+reports `0 skills` either way; that count only covers `commands/`, and the skill
+still loaded.
+
+Otherwise that is everything. The plugin carries the whole tool — there is
+nothing to `npm install`, no API key to configure, and no build step.
 
 ## Use it
 
