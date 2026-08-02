@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Plangolin — a system diagram that doesn't go stale</title>
+<!-- painted by app.js from the same geometry as the masthead mark -->
+<link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="shell" id="shell" data-inspector="closed" data-checks="closed" data-toolbar="open">
+  <header class="masthead">
+    <div class="brand">
+      <canvas class="brand-mark" id="brand" aria-hidden="true"></canvas>
+      <h1 class="wordmark">plangolin</h1>
+    </div>
+    <!-- Which project this sheet is for. Fixed for the life of the process —
+         src/cli.js pins it to the directory you ran from — so it is a label
+         and not a control. The breadcrumb beside it is the navigable one, and
+         keeping them distinct is the whole reason this isn't a root crumb. -->
+    <span class="project" id="project" hidden></span>
+    <!-- Only shown once you've navigated into a block — nothing to
+         breadcrumb back out of at the top level. Filled in by JS. -->
+    <nav class="breadcrumb" id="breadcrumb" aria-label="Current view" hidden></nav>
+    <span class="spacer"></span>
+    <!-- Only present when the scale is not 100%. Filled in by JS. -->
+    <button class="zoom-badge" id="zoom" type="button" hidden></button>
+    <span class="count" id="stat"></span>
+    <button class="ghost-btn" id="export-btn">Export for AI</button>
+    <!-- No "Start over": it called seed() directly, so it bypassed the one door,
+         recorded no undo entry, and render() wrote the empty document to disk on
+         its first line. One click, no confirmation, unrecoverable.
+         No theme toggle either — dark follows the OS, see app.css. -->
+  </header>
+
+  <main class="canvas" id="canvas">
+    <div class="world" id="world">
+      <svg class="wires" id="wires"></svg>
+      <svg class="wires wires-top" id="wire-labels"></svg>
+    </div>
+
+    <!-- What state the sheet is showing. A labelled control rather than a
+         drawn mark: the mark was in the same hand as the bulb and correct
+         about everything except being findable, which for the one thing that
+         says what all the other marks MEAN is the only thing that mattered.
+         It reads its own state, so there is nothing to learn. -->
+    <button class="statebtn" id="change-door" type="button" aria-expanded="false"
+            aria-controls="changepanel" hidden>
+      <span class="statebtn-label" id="state-label">Current branch</span>
+      <span class="statebtn-n" id="change-count"></span>
+      <span class="statebtn-cv" aria-hidden="true">▾</span>
+    </button>
+
+    <!-- One or two titles read beside the mark without opening anything: that
+         is the shape of one agent session, and the whole point is that you
+         should not have to ask. Filled in by JS, empty above two. -->
+    <div class="change-inline" id="change-inline" hidden></div>
+
+    <!-- The changes the last sync found. Titles inline when there are one or
+         two — the common case after one agent session, and worth reading
+         without a click. More than that and they live behind the door, where
+         a strip of seven would otherwise wrap across the sheet. -->
+    <aside class="changepanel" id="changepanel" aria-hidden="true">
+      <div class="changepanel-head">
+        <h2>Showing</h2>
+        <button class="rail-close" id="change-close" aria-label="Close">×</button>
+      </div>
+      <!-- The states, listed directly. They used to sit behind a second pill
+           inside this panel, which made choosing one a click deeper than the
+           thing it chose between. -->
+      <div class="baseline-menu" id="baseline-menu"></div>
+      <div class="changebar-groups" id="changebar-groups"></div>
+    </aside>
+
+    <!-- What a plan Claude wrote would do to this sheet, before a line of it
+         is written. Only ever open while a review is live: it is not a place
+         you go, it is a question you are asked, so there is no door to it.
+         Nothing in here is saved — the proposals are drawn on the sheet as
+         ghosts and thrown away when the review is answered. -->
+    <aside class="planpanel" id="planpanel" aria-hidden="true">
+      <header class="plan-head">
+        <h2>Claude's plan</h2>
+        <button class="rail-close" id="plan-close" aria-label="Close">×</button>
+      </header>
+      <div class="plan-note" id="plan-note"></div>
+      <div class="plan-rows" id="plan-rows"></div>
+      <div class="plan-kept" id="plan-kept"></div>
+      <footer class="plan-foot">
+        <button class="ghost-btn" id="plan-skip" type="button">Skip</button>
+        <button class="ghost-btn primary" id="plan-approve" type="button">Approve</button>
+      </footer>
+    </aside>
+
+    <!-- The way in to the plan check. Drawn rather than iconographic: same drift
+         function as the brand mark and the review circle, so the one thing that
+         tells you something is wrong is visibly the same hand that drew the
+         sheet. Dark filament when the sheet is clean; lit, and glowing in the
+         highest open severity, when it isn't. -->
+    <button class="bulb" id="bulb" aria-expanded="false" aria-controls="checkpanel"
+            aria-label="What's missing">
+      <canvas id="bulb-mark" aria-hidden="true"></canvas>
+      <span class="bulb-n" id="check-count"></span>
+    </button>
+
+    <!-- Floats over the sheet. Hovering a check pans the sheet to the block it
+         is about, so nothing important stays hidden behind the panel. -->
+    <aside class="checkpanel" id="checkpanel" aria-hidden="true">
+      <div class="checkpanel-head">
+        <h2>What's missing</h2>
+        <button class="rail-close" id="checks-close" aria-label="Close">×</button>
+      </div>
+      <div class="checkpanel-acts">
+      </div>
+      <p class="act-tip" id="act-tip"></p>
+      <div class="checks-note" id="complete-note"></div>
+      <div class="checks" id="checks"></div>
+    </aside>
+
+    <!-- One button. There is exactly one thing to do to an empty sheet — put
+         something on it — and the parts are fifteen nouns, which is a palette
+         rather than a toolbar. Behind a single control they cost no permanent
+         chrome, and the sheet keeps the attention. -->
+    <div class="adder" id="adder" data-open="false">
+      <button class="add-fab" id="add-fab" type="button"
+              aria-expanded="false" aria-controls="picker"
+              aria-label="Add to the sheet" title="Add to the sheet">
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
+             aria-hidden="true"><path d="M10 4.6v10.8M4.6 10h10.8"/></svg>
+      </button>
+
+      <div class="picker" id="picker" aria-hidden="true">
+        <p class="picker-head">Add a part</p>
+        <div id="palette-core"></div>
+        <p class="picker-head sub">plangolin raises any of these with a reason when your sheet needs one</p>
+        <div id="palette-more"></div>
+        <!-- The note was the toolbar's third tool. Folded in here rather than
+             dropped: nothing else reaches addNote(), and the V/A/N shortcuts
+             the tool tooltips advertised were never actually implemented. -->
+        <div class="picker-foot">
+          <button class="part" id="add-note" type="button">
+            <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
+                 stroke="currentColor" stroke-width="1.4" stroke-linecap="round"
+                 stroke-linejoin="round" aria-hidden="true"><path
+                 d="M3.5 3.5h13v9l-4 4h-9z"/><path d="M16.5 12.5h-4v4"/></svg>
+            <span>Sticky note</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- The one shortcut worth teaching. Getting lost is the failure mode
+         zoom introduces, and the way back is otherwise invisible until you
+         are already lost — the readout in the masthead only appears once you
+         have left 100%. This says it beforehand. Hidden on an empty sheet,
+         where there is nothing to focus on yet. Shown/hidden by JS. -->
+    <p class="hint" id="hint" hidden>
+      <kbd class="key">Shift</kbd><span class="key-join">+</span><kbd class="key">1</kbd>
+      <span class="hint-what">to focus</span>
+    </p>
+  </main>
+
+  <!-- Gone entirely when nothing is selected. Selecting a block is its own
+       discovery trigger, so there is nothing to rediscover. -->
+  <aside class="rail rail-right" id="rail-right" hidden>
+    <div class="rail-head">
+      This block
+      <button class="rail-close" id="inspector-close" aria-label="Close block details">×</button>
+    </div>
+    <div class="inspector" id="inspector"></div>
+  </aside>
+</div>
+<svg id="overlay"></svg>
+<script src="/app.js"></script>
+</body>
+</html>

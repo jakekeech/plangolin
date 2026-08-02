@@ -1,0 +1,14 @@
+{
+  "name": "plangolin",
+  "description": "plangolin — a system diagram that doesn't go stale",
+  "owner": { "name": "jakekeech" },
+  "plugins": [
+    {
+      "name": "plangolin",
+      "description": "Review a plan as a system diagram before it becomes code",
+      "version": "0.1.0",
+      "source": "./",
+      "author": { "name": "jakekeech" }
+    }
+  ]
+}

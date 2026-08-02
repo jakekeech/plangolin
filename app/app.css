@@ -1,0 +1,1178 @@
+@font-face{font-family:'Atkinson Hyperlegible';font-style:normal;font-weight:400;font-display:swap;
+    src:url(data:font/woff2;base64,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) format('woff2');}
+  @font-face{font-family:'Atkinson Hyperlegible';font-style:normal;font-weight:700;font-display:swap;
+    src:url(data:font/woff2;base64,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) format('woff2');}
+
+  :root {
+    /* brand — the drawing */
+    --ink:        #1B1B19;
+    --ink-soft:   #565857;
+    --ink-faint:  #8E9291;
+    --paper:      #FFFFFF;
+    --paper-2:    #F6F7F6;
+    --wash:       #DCE6E3;
+    --wash-2:     #C7D6D2;
+    --pine:       #1F6F6B;
+    --pine-soft:  #7FA6A2;
+
+    /* severity — semantic only, never decoration */
+    --risk:       #C2402C;
+    --risk-wash:  #F2DED8;
+    --missing:    #B07C18;
+    --missing-wash:#F3E8CE;
+    --idea:       #5C7C72;
+    --idea-wash:  #E2E8E3;
+
+    --grid:       rgba(27, 27, 25, 0.12);
+
+    --ui: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* The base a pressable button sits on. A shade of the surface, not a
+       translucent black — at 5% it was invisible, so there was nothing to
+       press into. Shadow geometry lives in the press rules, not here. */
+    --lift-ink: #C7D6D2;
+
+    /* The chip buttons' base. It only ever existed inside the dark block and a
+       data-theme rule nothing set, so on the light sheet it resolved to
+       nothing and .act-btn sat flat — the one pressable thing on the plan
+       check with no base under it. */
+    --lift: 0 2px 0 rgba(27, 27, 25, .05);
+
+    /* mascot only — deliberately clear of every severity hue, because the
+       obvious pangolin tan sits right on top of --missing. */
+    --scale:#8B7E6D; --scale-lit:#A79A85; --scale-deep:#6B6153; --hide:#CFB9A8;
+  }
+
+  /* One palette. The sheet is paper, and paper is not a preference — every
+     value above is chosen against white, the severity hues are picked for
+     contrast on it, and the drawn marks (brand, bulb, favicon) are painted
+     from these same tokens. A second set of them was a second design to keep
+     honest, and it was never the one anyone saw. */
+
+  /* `display: flex` on a component overrides the user-agent's
+     [hidden] { display: none }, which made the hidden attribute decorative on
+     the panels below. This puts it back. */
+  [hidden] { display: none !important; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper-2);
+    color: var(--ink);
+    font-family: var(--ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible { outline: 2px solid var(--pine); outline-offset: 2px; }
+
+  /* ---------- shell ---------- */
+
+  /* The right column is a stub until something is selected. Selecting a block is
+     itself the discovery trigger, so the inspector is the one panel that is safe
+     to keep out of the way — unlike the plan check, which nobody can go looking
+     for because they don't know what they forgot. */
+  .shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--rail-w, 0px);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh; height: 100dvh;
+    /* The column itself animates, so the canvas gives way as the panel arrives
+       instead of both jumping. 180ms: past the ~100ms where motion stops being
+       readable, well short of anything you would wait on. */
+    transition: grid-template-columns .18s cubic-bezier(.4, 0, .2, 1);
+  }
+  .shell[data-inspector="open"] { --rail-w: 270px; }
+
+  /* Centre rather than baseline: a canvas has no baseline to align to, so a
+     baseline row would hang the mark off its bottom edge. */
+  .masthead {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 18px;
+    padding: 13px 20px 11px;
+    background: var(--paper);
+    border-bottom: 2px solid var(--ink);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; flex: none; }
+  /* Sized in JS to the drawing's real ink bounds, so it costs no masthead height. */
+  .brand-mark { display: block; flex: none; }
+  .wordmark {
+    font-size: 20px; font-weight: 700; margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .masthead .tag { color: var(--ink-soft); font-size: 13px; margin: 0; }
+  /* Mono because it is a path, and quiet because it never changes. Sits left
+     of the breadcrumb so identity reads before position. */
+  .masthead .project {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+    flex: none; max-width: 28ch;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .masthead .project[hidden] { display: none; }
+  .breadcrumb { display: flex; align-items: center; gap: 6px; flex: none; }
+  .breadcrumb[hidden] { display: none; }
+  .crumb {
+    background: none; border: none; padding: 2px 4px; font: inherit;
+    font-size: 13px; color: var(--ink-soft); cursor: pointer; border-radius: 4px;
+  }
+  .crumb:last-child { color: var(--ink); font-weight: 600; }
+  .crumb:hover { text-decoration: underline; }
+  .crumb-sep { color: var(--ink-faint); font-size: 12px; }
+  .masthead .spacer { flex: 1; }
+  /* Same mono as the block count beside it: both are readouts, and reading
+     as one row keeps a control that comes and goes from announcing itself. */
+  .zoom-badge {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    color: var(--ink-soft); background: none; border: none;
+    padding: 3px 7px; border-radius: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .zoom-badge[hidden] { display: none; }
+  .zoom-badge:hover { color: var(--ink); background: var(--paper-2); }
+  .masthead .count {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  button { font-family: inherit; font-size: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- the press ----------
+
+     A button standing on a base, the way a key stands on a keyboard. We do it
+     with one element instead of two, so the shadow carries the base: the face
+     translates and the shadow changes length by the same amount, which pins
+     the shadow's outer edge. The base never moves — only the face does.
+
+       rest    y  0     shadow 2px    base edge at 2
+       hover   y -1     shadow 3px    base edge at 2   (face lifts)
+       press   y  0.5   shadow 1.5px  base edge at 2   (face drops)
+
+     Three things make this feel like a button rather than a rectangle that
+     moves, and all three are easy to get wrong:
+
+     1. It never bottoms out. The press shortens the shadow to 1.5px, it does
+        not remove it. A shadow collapsing to none reads as the button being
+        flattened, which is why homemade versions feel cheap.
+
+     2. Hover is instant. There is no transition at rest, so the lift happens
+        the moment the pointer arrives — you are only moving a mouse, and any
+        easing there registers as lag.
+
+     3. The transition exists only while pressed, for 100ms, so you can see it
+        travel down. Releasing drops :active and the transition with it, so it
+        snaps back and never gates the next click.
+
+     Travel is deliberately tiny — half a pixel from rest. Bigger reads loose. */
+
+  .ghost-btn, .check-act, .onboard-go, .retry-go {
+    box-shadow: 0 2px 0 var(--lift-ink);
+    user-select: none;
+  }
+  .ghost-btn:hover, .check-act:hover,
+  .onboard-go:hover:not(:disabled), .retry-go:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 0 var(--lift-ink);
+  }
+  .ghost-btn:active, .check-act:active,
+  .onboard-go:active:not(:disabled), .retry-go:active {
+    transform: translateY(.5px);
+    box-shadow: 0 1.5px 0 var(--lift-ink);
+    transition: transform .1s, box-shadow .1s;
+  }
+
+  /* Someone who asked not to see motion still needs to know the click landed,
+     so the shadow keeps working and only the travel goes. */
+  @media (prefers-reduced-motion: reduce) {
+    .ghost-btn, .check-act, .onboard-go, .retry-go,
+    .ghost-btn:hover, .check-act:hover,
+    .onboard-go:hover:not(:disabled), .retry-go:hover,
+    .ghost-btn:active, .check-act:active,
+    .onboard-go:active:not(:disabled), .retry-go:active {
+      transform: none; transition: none;
+    }
+  }
+
+  .ghost-btn {
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    padding: 3px 10px; font-size: 12px;
+  }
+
+  /* ---------- rails ---------- */
+
+  .rail { background: var(--paper); overflow-y: auto; min-height: 0; }
+  /* Border only once it is open — with box-sizing: border-box a zero-width
+     column still paints its border, which would leave a 2px ink line stuck to
+     the right edge of the screen whenever nothing is selected. */
+  .rail-right {
+    display: flex; flex-direction: column;
+    border-left: 0 solid var(--ink);
+    overflow-x: hidden;
+  }
+  .shell[data-inspector="open"] .rail-right { border-left-width: 2px; }
+  /* Content holds its full width while the column is still opening, so the
+     panel slides into view rather than reflowing out of a squashed state. */
+  .rail-right > * { min-width: 268px; }
+
+  /* The stub is what stops "contextual" turning into "gone". It is always on
+     screen, labelled, and clickable — a keyboard shortcut alone would not be
+     recoverable for someone who has never used this. */
+
+  .rail-right .rail-head { display: flex; align-items: center; gap: 8px; }
+  .rail-close {
+    margin-left: auto; background: none; border: none; padding: 0 2px;
+    font-size: 16px; line-height: 1; color: var(--ink-faint);
+  }
+  .rail-close:hover { color: var(--ink); }
+
+
+
+  .rail-head {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-faint);
+    padding: 15px 16px 7px;
+  }
+  .rail-head.sub { padding-top: 20px; }
+
+  /* ---------- the add button: one control, bottom-left ---------- */
+
+  /* Same construction as a block on the sheet — paper face, 2px ink edge, a
+     hard lift in the accent — so the thing that makes blocks is visibly the
+     same material as the blocks. 46px clears the 44px target minimum, and it
+     sits on the bulb's 14px inset so the two corners agree. */
+  .adder { position: absolute; left: 14px; bottom: 14px; z-index: 12; }
+
+  /* ---------- the shortcut hint ----------
+
+     Two keycaps drawn the way everything else on the sheet is drawn: an ink
+     line with a base underneath, the same idiom as the add button and the
+     press above it.
+
+     The corners are deliberately uneven, and the two caps are uneven
+     differently, so they read as drawn rather than stamped — a keycap with
+     four identical radii is a rectangle, and two identical keycaps are a
+     screenshot of a keyboard. Same reason the brand mark and the bulb are
+     painted rather than set as icons.
+
+     pointer-events: none because it is a label, not a control. It also keeps
+     it from swallowing drags that end in that corner of the sheet. */
+  .hint {
+    position: absolute; right: 14px; bottom: 14px; z-index: 12;
+    margin: 0; display: flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-faint); user-select: none; pointer-events: none;
+  }
+  .key {
+    font-family: inherit; font-size: 10px; line-height: 1;
+    padding: 4px 6px 5px;
+    color: var(--ink-soft); background: var(--paper);
+    border: 1.5px solid var(--ink-soft);
+    box-shadow: 0 2px 0 var(--lift-ink);
+    border-radius: 7px 4px 8px 5px / 5px 8px 4px 7px;
+  }
+  .key:last-of-type { border-radius: 4px 8px 5px 7px / 8px 5px 7px 4px; }
+  .key-join { color: var(--ink-faint); font-size: 10px; }
+  .hint-what { margin-left: 1px; }
+
+  /* Stays a button — paper, ink border, pine lift — just smaller than it was.
+     Only the picker's animation changed. */
+  .add-fab {
+    width: 38px; height: 38px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--paper); border: 2px solid var(--ink);
+    border-radius: 6px; box-shadow: 0 3px 0 var(--pine);
+    color: var(--ink);
+  }
+  .add-fab:hover { transform: translateY(-1px); box-shadow: 0 4px 0 var(--pine); }
+  .add-fab:active { transform: translateY(1px); box-shadow: none; }
+  .add-fab:active {
+    transform: translateY(1px); box-shadow: 0 2px 0 var(--pine);
+    transition: transform .1s, box-shadow .1s;
+  }
+  .add-fab[aria-expanded="true"] { background: var(--wash); }
+
+  /* 6 + 16 + 3 + 13.75 + 6 = 44.75 -> a 44x44 minimum target, which clears
+     WCAG 2.5.8 (AA, 24px) outright and meets 2.5.5 (AAA) and Apple's 44pt.
+     Worth knowing: the label is what pays for that. Icon-only at this padding
+     is 28px tall — below Excalidraw's button and half of tldraw's. */
+  .part {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 4px; cursor: grab; width: 100%; min-height: 44px;
+    border: none; background: transparent; border-radius: 3px;
+    text-align: center; color: var(--ink);
+  }
+  .part:hover { background: var(--wash); }
+  .part:active { cursor: grabbing; }
+  .part svg { flex: none; color: var(--ink); width: 16px; height: 16px; }
+  /* Atkinson, not mono: styling §3 reserves mono for machine-readable
+     identifiers and says never prose. These labels are the vocabulary the
+     palette exists to teach — the most prose-like strings in the product, and
+     the ones that most need the face chosen for legibility. */
+  /* Wrapping is fine in a column — a two-line item is just taller, and nothing
+     misaligns. That is the other reason vertical suits long plain-English
+     labels: "Someone else's API" costs a line here and 118px in a row. */
+  .part span {
+    font-size: 11px; font-family: var(--ui);
+    line-height: 1.25; color: var(--ink-soft);
+    text-wrap: balance; hyphens: none;
+  }
+  .part:hover span { color: var(--ink); }
+
+
+  /* Reference, not a tool: these have no add button on purpose. */
+  /* Anchored to the side, matching tldraw's rule for a vertical toolbar:
+     side = horizontal ? 'top' : 'right'. */
+  /* The picker is where the labels live. Icon beside label at 12.5px Atkinson —
+     matching the "Block description" row in styling §3, and readable, which
+     9.5px mono in a toolbar was not. */
+  /* Opens upward from a bottom toolbar — tldraw's rule for a horizontal bar is
+     side: 'top', centre-aligned on the trigger. */
+  /* Emerges from the FAB, exactly as the plan check emerges from the bulb.
+     Origin is the FAB's own centre — 19px in, on the picker's bottom edge,
+     since it opens upward. No lift, matching the plan check. */
+  .picker {
+    position: absolute; left: 0; bottom: calc(100% + 8px);
+    width: 262px; max-height: 62vh; overflow-y: auto;
+    padding: 12px 14px 10px;
+    background: var(--paper); border: 2px solid var(--ink);
+    border-radius: 6px; box-shadow: none;
+    transform-origin: 19px 100%;
+    opacity: 0; visibility: hidden;
+    transform: scale(.96) translateY(5px);
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1),
+                visibility 0s linear .2s;
+  }
+  .adder[data-open="true"] .picker {
+    opacity: 1; visibility: visible; transform: none;
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1),
+                visibility 0s;
+  }
+  .picker-head {
+    margin: 0 0 7px; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint);
+  }
+  .picker-head.sub {
+    margin-top: 14px; padding-top: 11px; border-top: 1.5px solid var(--wash);
+    font-family: var(--ui); font-size: 11.5px; letter-spacing: 0;
+    text-transform: none; color: var(--ink-soft); text-wrap: balance;
+  }
+  .picker .part {
+    flex-direction: row; align-items: center; gap: 10px;
+    width: 100%; min-height: 34px; padding: 5px 6px;
+    text-align: left; border-radius: 3px;
+  }
+  .picker .part svg { flex: none; }
+  .picker .part span {
+    font-family: var(--ui); font-size: 12.5px; line-height: 1.3;
+    color: var(--ink); text-align: left;
+  }
+  .picker .part em {
+    display: block; font-style: normal; font-size: 11.5px; color: var(--ink-faint);
+  }
+  /* Not a part of the system — a thing you stick on top of it — so it sits
+     below a rule rather than in the list. */
+  .picker-foot { margin-top: 12px; padding-top: 9px; border-top: 1.5px solid var(--wash); }
+
+  /* ---------- sticky notes ----------
+     Deliberately not yellow: styling §2 reserves colour for severity, and a
+     yellow note would read as a `missing` mark. Pale wash with an ink edge. */
+  .sticky {
+    position: absolute; width: 168px; min-height: 92px; z-index: 2;
+    background: var(--wash); border: 2px solid var(--ink);
+    border-radius: 3px; box-shadow: 0 3px 0 var(--wash-2);
+    padding: 8px 9px 9px; cursor: grab; user-select: none;
+  }
+  .sticky.dragging { cursor: grabbing; }
+  /* The text is the one part that isn't a drag handle — you need to be able to
+     place a caret in it. */
+  .sticky-text { cursor: text; user-select: text; }
+  .sticky-text {
+    font-size: 12.5px; line-height: 1.35; color: var(--ink);
+    outline: none; min-height: 60px; white-space: pre-wrap; word-break: break-word;
+  }
+  .sticky-text:empty::before {
+    content: attr(data-placeholder); color: var(--ink-faint);
+  }
+  .sticky-x {
+    position: absolute; top: 2px; right: 3px;
+    background: none; border: none; padding: 0 4px;
+    font-size: 15px; line-height: 1; color: var(--ink-faint); opacity: 0;
+  }
+  .sticky:hover .sticky-x { opacity: 1; }
+  .sticky-x:hover { color: var(--ink); }
+
+  /* ---------- canvas ---------- */
+
+  .canvas {
+    position: relative; overflow: hidden;
+    background-color: var(--paper-2);
+    background-image: radial-gradient(var(--grid) 1.1px, transparent 1.1px);
+    background-size: 22px 22px;
+    min-height: 0;
+  }
+  .canvas.panning { cursor: grabbing; }
+  .canvas.dropping { box-shadow: inset 0 0 0 3px var(--pine); }
+
+  .world { position: absolute; inset: 0; transform-origin: 0 0; }
+
+  .wires {
+    position: absolute; left: 0; top: 0;
+    width: 5200px; height: 3600px;
+    overflow: visible; pointer-events: none; z-index: 0;
+  }
+  .wires-top { z-index: 3; }
+
+  .wire { fill: none; stroke: var(--pine); stroke-width: 1.6; }
+  .wire-hit { fill: none; stroke: transparent; stroke-width: 16px; pointer-events: stroke; cursor: pointer; }
+  .wire.sel { stroke-width: 3; }
+  .wire.loose { stroke-dasharray: 6 4; opacity: .75; }
+  .wire.temp { stroke: var(--ink); stroke-dasharray: 4 4; }
+
+  /* A line that leaves this view. Lighter than a real line and stopping
+     short, because it is a signpost to somewhere else rather than a
+     connection drawn between two things you can see. */
+  .wire-stub { stroke-dasharray: 2 5; opacity: .6; }
+  .wire-stub-label { opacity: .75; }
+  .wire-label.anchor-start { text-anchor: start; }
+  .wire-label.anchor-end   { text-anchor: end; }
+
+  /* ---------- wires the last sync disagreed with ----------
+     Both states are carried by weight and dash, never by hue: a dead line is
+     not a risk and a new one is not a warning, and §2 keeps colour for
+     severity. `gone` reads as a line with nothing travelling down it —
+     faint, still in place, so you can see what was lost rather than watch it
+     disappear. `gained` says present-but-not-yet-yours: the code has it, the
+     drawing hasn't agreed.
+
+     Gained is dotted rather than dashed, because `loose` is already a thin
+     dashed line and two dash patterns at a glance are one dash pattern.
+     Round caps at 3px read as a row of beads — a different kind of line. */
+  .wire.gone {
+    stroke: var(--ink-faint); stroke-dasharray: 5 4; opacity: .55;
+  }
+  .wire.gained {
+    stroke: var(--pine); stroke-width: 3;
+    stroke-dasharray: 0.1 7; stroke-linecap: round;
+  }
+  .wire-label {
+    font-family: var(--mono); font-size: 10px; fill: var(--ink-soft);
+    text-anchor: middle; paint-order: stroke;
+    stroke: var(--paper-2); stroke-width: 5px; stroke-linejoin: round;
+  }
+
+  /* ---------- node: ink line, wash behind ---------- */
+
+  /* White fill, ink outline, and a tight hard lift in the accent — the block
+     sits on the sheet rather than casting a blurry shadow onto it. */
+  .node {
+    position: absolute; width: 198px;
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 5px;
+    box-shadow: 0 3px 0 var(--pine);
+    cursor: grab; user-select: none; z-index: 1;
+  }
+  .node.sel { box-shadow: 0 3px 0 var(--pine), 0 0 0 3px var(--wash); }
+
+  /* A collapsed container is still one block — the stacked plate behind it is
+     the only thing that says there is more inside. */
+  .node.collapsed::before {
+    content: ""; position: absolute; inset: -2px;
+    border: 2px solid var(--ink); border-radius: 5px;
+    background: var(--paper); transform: translate(5px, -5px);
+    z-index: -1; pointer-events: none;
+  }
+  .node-count {
+    margin-left: auto; font-family: var(--mono); font-size: 9px;
+    letter-spacing: .06em; color: var(--pine);
+    border: 1.5px solid var(--pine); border-radius: 999px; padding: 0 5px;
+    /* Never squashed by a long kind beside it — the count is the shorter and
+       more useful of the two, so the kind gives way first. */
+    flex: none; white-space: nowrap;
+  }
+
+  /* A block whose insides moved. The whole edge goes dashed rather than a
+     rule under it: an underline was quiet enough to read as decoration, and
+     a card drawn in a broken line is unmistakably not the settled thing its
+     neighbours are. The ink is kept — every block on this sheet is drawn in
+     ink, and a changed one is still the same material. */
+  .node.inside { border-style: dashed; }
+
+  /* What moved, on a tab attached to the top edge. It used to be the same
+     pill as the child count, which made "3 inside" and "3 changed" one
+     shape carrying two unrelated facts — and left a block that had both with
+     only room to say one. Pine because that is what change wears here;
+     severity keeps its own hues and its own drawn ellipse. */
+  .node-changed {
+    position: absolute; left: -2px; top: -17px; z-index: 2;
+    display: inline-flex; align-items: center;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+    padding: 1px 7px 2px; white-space: nowrap;
+    color: var(--paper); background: var(--pine);
+    border: 2px solid var(--ink); border-bottom: none;
+    border-radius: 4px 4px 0 0;
+  }
+  .node.dragging { cursor: grabbing; }
+  .node.ghost { opacity: .4; border-style: dashed; }
+
+  .node-top { display: flex; align-items: center; gap: 7px; padding: 7px 10px 5px; }
+  .node-top svg { flex: none; color: var(--ink); }
+  .node-kind {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-soft);
+    /* A scanned repo produces kinds nobody chose from a list — "Node CLI and
+       filesystem adapter" is a plausible answer. One line, clipped, with the
+       full text on hover; wrapping would push the name and intent around and
+       make every block a different height. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .node-name { padding: 0 10px 3px; font-size: 15px; font-weight: 700; letter-spacing: -.005em; }
+  .node-intent { padding: 0 10px 9px; font-size: 12.5px; line-height: 1.4; color: var(--ink-soft); }
+  /* What a block holds, and the way into it. Double-click alone is the
+     documented failure of progressive disclosure — a level nobody finds
+     because the affordance is too discreet — and a bare count says a door
+     exists without saying what is behind it. The names do both jobs: they
+     are the reason to go in and the thing you press. */
+  .node-holds {
+    margin: 0; padding: 0 10px 9px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.5;
+    color: var(--ink-faint);
+  }
+  .holds-go {
+    font: inherit; padding: 0; border: 0; background: none;
+    color: var(--pine); cursor: pointer;
+    border-bottom: 1px solid var(--pine-soft);
+  }
+  .holds-go:hover { border-bottom-color: var(--pine); background: var(--wash); }
+  .holds-go:focus-visible { outline: 2px solid var(--pine); outline-offset: 2px; }
+  .holds-go.more { border-bottom-style: dotted; }
+  /* A child that moved, at any depth. Dashed and heavier than the plain
+     underline, and the same dashed pine the block itself wears — so it reads
+     as the same fact reported one level up, not as a second kind of mark.
+     Distinct from .more, which is dotted. */
+  .holds-go.moved { border-bottom: 2px dashed var(--pine); }
+  .node-intent.empty { color: var(--risk); font-style: italic; }
+
+  .port {
+    position: absolute; right: -9px; top: 50%; margin-top: -8px;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--paper); border: 1.75px solid var(--ink);
+    cursor: crosshair; opacity: 0; transition: opacity .12s, transform .12s;
+  }
+  .node:hover .port, .node.sel .port, .port:focus-visible { opacity: 1; }
+  .port:hover { transform: scale(1.25); background: var(--pine); }
+
+  /* ---------- leader-line overlay: the signature ---------- */
+
+  #overlay {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 50;
+  }
+  .leader { fill: none; stroke-width: 1.4; stroke-dasharray: 5 3; }
+  .leader-dot { stroke: none; }
+  .figure { fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .figure-fill { fill: var(--paper); stroke: var(--ink); stroke-width: 1.6; }
+
+  /* ---------- inspector ---------- */
+
+  .inspector { padding: 0 16px 16px; overflow-y: auto; min-height: 0; }
+  .inspector.empty-state { color: var(--ink-faint); font-size: 13px; padding-bottom: 20px; }
+
+  .field { margin-bottom: 11px; }
+  .field > label {
+    display: block; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 4px;
+  }
+  input[type="text"], textarea, select {
+    width: 100%; font-family: var(--ui); font-size: 13px; color: var(--ink);
+    background: var(--paper); border: 1.5px solid var(--ink);
+    border-radius: 2px; padding: 6px 8px; resize: vertical;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus {
+    outline: none; box-shadow: 3px 3px 0 var(--wash);
+  }
+  textarea { min-height: 60px; line-height: 1.42; }
+  textarea.field-details { min-height: 100px; }
+  .field-help { font-size: 11.5px; color: var(--ink-faint); margin-top: 4px; }
+
+  .contract-row, .contract-head { display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 4px; }
+  .contract-row { margin-bottom: 4px; }
+  .contract-row input { font-family: var(--mono); font-size: 11px; padding: 4px 5px; }
+  .contract-head {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px;
+  }
+  .row-x { background: none; border: none; color: var(--ink-faint); padding: 0; font-size: 15px; line-height: 1; }
+  .row-x:hover { color: var(--risk); }
+
+  /* The files behind a block's "N changed" mark. Same treatment as
+     .check-cite — mono, faint, breakable — because it is the same kind of
+     thing: a real path, offered as evidence rather than as a claim. Sits at
+     the top of the panel with a rule under it, so it reads as context for the
+     fields below rather than as another field to fill in. */
+  .changed-field {
+    padding-bottom: 10px; margin-bottom: 12px;
+    border-bottom: 1.5px solid var(--wash);
+  }
+  .changed-files {
+    list-style: none; margin: 0; padding: 0;
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.5;
+    color: var(--ink-faint); word-break: break-all;
+  }
+  .changed-files .more { color: var(--ink-faint); font-style: italic; }
+
+  .link-btn {
+    background: none; border: none; padding: 2px 0; font-size: 12.5px;
+    color: var(--pine); text-decoration: underline; text-underline-offset: 3px;
+  }
+  .link-btn.danger { color: var(--risk); }
+
+
+  /* ---------- the lightbulb ---------- */
+  /* No card, no border — it hangs on the sheet like a drawn mark rather than a
+     button. Tilts and brightens on hover; the glow itself is painted on the
+     canvas, so the CSS only nudges the whole thing. */
+  /* No card, no border — it hangs on the sheet like a drawn mark rather than a
+     button. The tilt is on the glyph alone: the count sits beside it and should
+     stay put, or the whole control looks like it is wobbling. */
+  .bulb {
+    position: absolute; right: 14px; top: 14px; z-index: 12;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; min-height: 44px;
+    background: none; border: none; box-shadow: none;
+  }
+  .bulb canvas {
+    display: block;
+    transform-origin: 50% 85%;
+    transition: transform .16s cubic-bezier(.34,1.4,.64,1), filter .16s ease;
+  }
+  .bulb:hover canvas, .bulb:focus-visible canvas {
+    transform: rotate(-7deg) scale(1.06);
+    filter: brightness(1.06) drop-shadow(0 0 7px var(--bulb-glow, transparent));
+  }
+  .bulb:active canvas { transform: rotate(-4deg) scale(1.01); }
+  /* Held open: the glyph stays tilted and lit. This used to be weaker than
+     hover, so clicking produced no visible change at all. */
+  .bulb[aria-expanded="true"] canvas {
+    transform: rotate(-9deg) scale(1.1);
+    filter: drop-shadow(0 0 9px var(--bulb-glow, transparent));
+  }
+  .bulb[aria-expanded="true"]:hover canvas { transform: rotate(-11deg) scale(1.13); }
+  .bulb-n {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+  .bulb-n:empty { display: none; }
+
+  /* ---------- the plan check, on the left ---------- */
+  /* Dashed and unshadowed, unlike the blocks: this is a note pinned over the
+     sheet, not another thing on it. The lift is what makes a block read as a
+     physical chip, so leaving it off keeps the two apart. */
+  /* It emerges from the bulb rather than blinking into existence. Every system
+     surveyed establishes the trigger->surface link largely through that, and
+     this had no animation at all. Origin is the bulb's own centre — 21px in,
+     top edge — so it grows out of the thing that opened it.
+     `hidden` can't be used here: display:none kills the transition. */
+  .checkpanel {
+    position: absolute; right: 68px; top: 12px; z-index: 11;
+    width: 312px; max-height: calc(100% - 150px);
+    display: flex; flex-direction: column;
+    /* Solid, not dashed: dashed already means something here — a wire with no
+       operations defined — so a dashed edge reads as "unfinished". The missing
+       pine lift is what separates this from a block; blocks are chips resting
+       on the sheet, this is pinned flat over it. */
+    background: var(--paper); border: 2px solid var(--ink);
+    border-radius: 6px; box-shadow: none;
+    transform-origin: 100% 24px;
+    opacity: 0; visibility: hidden;
+    transform: scale(.96) translateX(6px);
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1),
+                visibility 0s linear .2s;
+  }
+  .shell[data-checks="open"] .checkpanel {
+    opacity: 1; visibility: visible; transform: none;
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1),
+                visibility 0s;
+  }
+  .checkpanel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 12px 6px 16px; flex: none;
+  }
+  .checkpanel-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+  .checkpanel-acts {
+    display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; flex: none;
+    border-bottom: 1.5px solid var(--wash); margin-bottom: 2px;
+  }
+
+  /* Small chip buttons rather than plain underlined text — four run-on links
+     wrapping mid-word in a 312px panel read as unfinished, not minimal. */
+  .act-btn {
+    position: relative; display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 9px; font-size: 12px; white-space: nowrap;
+    background: var(--paper); border: 1.5px solid var(--ink); border-radius: 5px;
+    color: var(--ink); box-shadow: var(--lift);
+    transition: transform .1s, background-color .12s;
+  }
+  .act-btn svg { flex: none; color: var(--pine); }
+  .act-btn:hover { transform: translate(0, -1px); background: var(--wash); }
+  .act-btn:active { transform: translate(0, 1px); box-shadow: none; }
+  .act-btn:disabled { opacity: .5; cursor: default; transform: none; background: var(--paper); }
+
+  /* What the hovered/focused button actually does, not just its name (the
+     label already gives the name). A floating bubble was tried first and
+     rejected: this row wraps to two lines in a 312px panel, so a tooltip
+     positioned under whichever button triggered it routinely landed on top
+     of the next row instead of the content below. A fixed line under the
+     whole row — filled in by JS, collapsed via :empty when nothing's
+     hovered — never collides with anything, and matches how .field-help
+     already explains a field in this same app. */
+  .act-tip { margin: 0; padding: 0 16px 8px; font-size: 11.5px; line-height: 1.4; color: var(--ink-soft); }
+  .act-tip:empty { display: none; padding: 0; }
+  .checkpanel .checks { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 14px; }
+
+  /* ---------- plan check ---------- */
+
+  .checks { min-height: 0; padding: 4px 16px 16px; }
+
+  /* Complete system and Deep review sit beside the toggle rather than inside
+     it — a button inside a button is invalid, and both must stay reachable
+     while the strip is collapsed. */
+
+  .checks-note {
+    padding: 2px 16px 8px; font-size: 12px; color: var(--ink-faint); text-wrap: balance;
+  }
+  .checks-note:empty { display: none; }
+  .checks-note.bad { color: var(--risk); }
+
+  .check {
+    position: relative; padding: 9px 0 11px 13px;
+    border-bottom: 1.5px solid var(--wash);
+  }
+  .check::before {
+    content: ""; position: absolute; left: 0; top: 12px; bottom: 13px;
+    width: 2.5px; background: var(--risk);
+  }
+  .check[data-sev="missing"]::before { background: var(--missing); }
+  .check[data-sev="unwired"]::before { background: var(--missing); }
+  .check[data-sev="idea"]::before    { background: var(--idea); }
+  .check:hover { background: color-mix(in srgb, var(--wash) 45%, transparent); }
+
+  .check-tag {
+    display: inline-block; font-family: var(--mono); font-size: 9px;
+    letter-spacing: .1em; text-transform: uppercase;
+    padding: 1px 5px; border-radius: 2px;
+    background: var(--risk-wash); color: var(--risk); margin-bottom: 5px;
+  }
+  .check[data-sev="missing"] .check-tag,
+  .check[data-sev="unwired"] .check-tag { background: var(--missing-wash); color: var(--missing); }
+  .check[data-sev="idea"] .check-tag    { background: var(--idea-wash); color: var(--idea); }
+
+  .check-title { font-size: 13.5px; font-weight: 700; margin: 0 0 3px; text-wrap: balance; }
+  .check-why { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 7px; }
+  .check-why code {
+    font-family: var(--mono); font-size: 11.5px;
+    background: var(--wash); padding: 0 3px; border-radius: 2px;
+  }
+  /* The real file(s) a proposed change is grounded in — attached
+     server-side from files actually read, never asked of the model, so
+     it's a citation rather than a claim. */
+  .check-cite {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+    margin: 0 0 7px; word-break: break-all;
+  }
+  .check-act {
+    background: var(--paper); border: 1.5px solid var(--ink);
+    border-radius: 2px; padding: 3px 9px; font-size: 12px;
+  }
+
+  .checks-clear { padding: 22px 2px; color: var(--ink-faint); font-size: 13px; text-wrap: balance; }
+
+  /* ---------- deep review: a separate, AI-sourced section below the rules.
+     Visually distinct on purpose — these are judgement calls to weigh, not
+     the deterministic rules above, which never disagree with themselves. */
+  .checks-ai-head {
+    margin-top: 6px; padding: 10px 0 8px; border-top: 1.5px solid var(--wash);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .check[data-sev="ai"]::before { background: var(--pine); }
+  .check[data-sev="ai"] .check-tag { background: var(--pine-soft); color: var(--paper); }
+  .check-row { display: flex; align-items: center; gap: 10px; }
+  .check-x {
+    background: none; border: none; padding: 0 2px; font-size: 15px;
+    line-height: 1; color: var(--ink-faint);
+  }
+  .check-x:hover { color: var(--risk); }
+
+  /* Animations as well as transitions — killing only transitions leaves
+     keyframed motion like the theme-glyph swap running for exactly the people
+     who asked for none. */
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; grid-template-rows: auto 45vh auto auto; height: auto; }
+    .shell[data-inspector="open"] { --rail-w: auto; }
+    .checkpanel { left: 10px; right: 10px; width: auto; max-height: 46vh; }
+    .picker { width: min(262px, calc(100vw - 40px)); }
+    .part { width: auto; }
+    .canvas { min-height: 45vh; }
+    .rail-right { border-left: none; border-top: 2px solid var(--ink); }
+    #overlay { display: none; }
+  }
+
+/* ---------- onboarding: the empty sheet asks one question ---------- */
+
+/* While the sheet is empty the toolbar has nothing useful to offer — the user is
+   being asked to describe their app, not to place a bare Database. Canva is the
+   only comparable tool that branches its default panel on canvas emptiness; this
+   is the same idea, cheaper. */
+.canvas:has(.onboard) .adder { display: none; }
+
+/* The wait, and the two dead ends that use the same furniture. Sits on the
+   paper rather than in a card: there is nothing to press, so a card with a
+   border would only draw a box around a picture of an animal. */
+.splash {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
+  background: var(--paper-2);
+  padding: 24px; text-align: center;
+}
+.splash-ball { display: block; margin-bottom: 18px; }
+.splash-say {
+  margin: 0; font-family: var(--mono); font-size: 13px;
+  letter-spacing: .02em; color: var(--ink);
+}
+/* Each new line rises into place. A word that simply swaps looks like a
+   glitch; a word that arrives looks like a step finishing. */
+.splash-say.in { animation: say-in 340ms cubic-bezier(.2, .7, .3, 1) both; }
+@keyframes say-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+/* Reserved width, so the word beside them holds still while they cycle. */
+.splash-dots { display: inline-block; width: 2.1ch; text-align: left; }
+/* Set apart from the line above rather than sitting under it. The two say
+   different kinds of thing — one is the step, one is what was found — and at
+   the container's 4px gap they read as a single wrapped sentence. */
+.splash-sub {
+  margin: 10px 0 0; font-family: var(--mono); font-size: 11px;
+  color: var(--ink-faint); letter-spacing: .02em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-say.in { animation: none; }
+}
+/* A dead end is not a loading state — nothing is coming, so nothing moves. */
+.splash-idle .splash-say { color: var(--ink-soft); }
+.splash-idle .splash-sub { max-width: 42ch; line-height: 1.5; }
+
+.onboard {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--paper-2);
+}
+.onboard-card {
+  width: min(520px, calc(100% - 48px));
+  background: var(--paper);
+  border: 2px solid var(--ink); border-radius: 6px;
+  box-shadow: 0 3px 0 var(--pine);
+  padding: 22px;
+}
+.onboard h2 { margin: 0 0 4px; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+.onboard p  { margin: 0 0 14px; font-size: 13.5px; color: var(--ink-soft); }
+.onboard textarea {
+  width: 100%; min-height: 76px; font-size: 14px; line-height: 1.45;
+  border: 1.5px solid var(--ink); border-radius: 3px; padding: 9px 10px;
+  background: var(--paper); color: var(--ink); font-family: var(--ui); resize: vertical;
+}
+.onboard textarea:focus { outline: none; box-shadow: 3px 3px 0 var(--wash); }
+.onboard-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.onboard-go {
+  background: var(--paper); border: 2px solid var(--ink); border-radius: 4px;
+  padding: 6px 14px; font-size: 13.5px; font-weight: 700;
+  --lift-ink: var(--pine);          /* the primary action gets a coloured base */
+}
+.onboard-go:disabled { opacity: .5; cursor: default; }
+.onboard-skip { background: none; border: none; font-size: 13px; color: var(--pine); text-decoration: underline; text-underline-offset: 3px; }
+.onboard-note { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-faint); }
+.onboard-note.bad { color: var(--risk); }
+.onboard-examples { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.onboard-example {
+  background: var(--wash); border: none; border-radius: 3px;
+  padding: 3px 8px; font-size: 12px; color: var(--ink-soft);
+}
+.onboard-example:hover { color: var(--ink); }
+
+/* Offered only while a generated sheet is still untouched, so it sits on the
+   canvas rather than in the masthead — chrome would imply it is always
+   available, which is the thing that made "Start over" dangerous. */
+.retry {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--paper); border: 1.5px solid var(--ink); border-radius: 999px;
+  padding: 5px 8px 5px 14px; box-shadow: 0 2px 0 var(--wash);
+  font-size: 12.5px; color: var(--ink-soft); z-index: 4;
+}
+.retry-go {
+  background: var(--paper); border: 1.5px solid var(--ink); border-radius: 999px;
+  padding: 4px 11px; font-size: 12.5px; color: var(--ink); cursor: pointer;
+}
+/* Colour change on hover would fight the lift for attention, so the pill
+   keeps its face and only rises. */
+.retry-go:hover { background: var(--paper); }
+
+  /* Not part of the change you are looking at. Faded rather than hidden — the
+     rest of the system is what makes the part legible, and a block that
+     vanished would take its position with it, which is the one thing the
+     sheet promises never to do. Still readable, still clickable. */
+  .node.aside { opacity: .32; }
+  .node.aside:hover { opacity: .6; }
+
+  /* The strip of changes along the top of the sheet. Sits over the canvas
+     rather than in the masthead: it belongs to what is drawn, and it is only
+     there while something is unread. */
+  .changebar {
+    position: absolute; left: 68px; top: 14px; z-index: 11;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    max-width: calc(100% - 90px);
+  }
+  .changebar .lead {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-faint); flex: none;
+  }
+  .change-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: inherit; font-size: 11.5px; white-space: nowrap;
+    padding: 3px 9px; border: 1.5px solid var(--ink); border-radius: 999px;
+    background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  .change-chip:hover { background: var(--wash); }
+  .change-chip[aria-pressed="true"] { background: var(--wash); box-shadow: 0 2px 0 var(--pine); }
+  .change-chip i {
+    font-style: normal; font-family: var(--mono); font-size: 9px; color: var(--ink-soft);
+  }
+
+  /* ---------- the baseline picker ----------
+     What the marks are measured against. Always present once a sync has run,
+     because it is the one control that says what everything else means — a
+     picker that appears only when there is change would be missing exactly
+     when you want to widen the window and look for some. */
+
+  .baseline-menu {
+    padding: 0 9px 6px; max-height: 40vh; overflow-y: auto; flex: none;
+  }
+  .base-note { padding: 4px 9px 8px; font-size: 12px; color: var(--ink-soft); }
+  .baseline-menu .hd {
+    font-family: var(--mono); font-size: 7.5px; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--ink-faint); padding: 5px 9px 3px;
+  }
+  .baseline-menu .rule { height: 1.5px; background: var(--wash); margin: 5px 7px; }
+  .base-row {
+    display: flex; align-items: baseline; gap: 9px; width: 100%;
+    font: inherit; font-size: 12px; text-align: left;
+    padding: 5px 9px; border: 0; border-radius: 4px;
+    background: none; color: var(--ink); cursor: pointer;
+  }
+  .base-row:hover { background: var(--paper-2); }
+  .base-row[aria-current="true"] { background: var(--wash); box-shadow: inset 2.5px 0 0 var(--pine); }
+  .base-row .sp { flex: 1; }
+  .base-row .subj {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 165px;
+  }
+  .base-row em {
+    display: block; font-style: normal; font-family: var(--mono);
+    font-size: 8.5px; color: var(--ink-faint); margin-top: 2px;
+  }
+  /* How many blocks that commit moved. An em-dash means it moved none, which
+     is the most useful thing a commit list can tell you and the one thing a
+     list with no model behind it cannot say. */
+  .base-row .blocks {
+    font-family: var(--mono); font-size: 9px; color: var(--pine); flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .base-row .blocks.none { color: var(--ink-faint); }
+  .base-row .ago { font-family: var(--mono); font-size: 8.5px; color: var(--ink-faint); flex: none; }
+  .changebar-groups { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* Asks the one paid question on the sheet. Deliberately not a chip: the
+     chips are changes and this is not one, and it says what you get rather
+     than what it does — "What were these for?" is the question you already
+     had. */
+  .name-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    font: inherit; font-size: 11.5px; white-space: nowrap;
+    padding: 3px 9px; border: 1.5px dashed var(--pine-soft); border-radius: 999px;
+    background: var(--paper); color: var(--pine); cursor: pointer;
+  }
+  .name-btn:hover { background: var(--wash); border-color: var(--pine); }
+  .name-btn svg { flex: none; }
+  .naming {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-faint);
+    letter-spacing: .04em;
+  }
+
+  /* ---------- what state the sheet is showing ----------
+     A labelled control, not a drawn mark. The mark was in the same hand as
+     the bulb and correct about everything except being findable — and for
+     the one control that says what every other mark MEANS, that was the only
+     thing that mattered. This one reads its own state, so there is nothing
+     to learn and nothing to hover to discover. */
+  .statebtn {
+    position: absolute; left: 14px; top: 12px; z-index: 12;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px 5px 12px; font: inherit; font-size: 12.5px;
+    background: var(--paper); border: 2px solid var(--ink); border-radius: 5px;
+    color: var(--ink); box-shadow: 0 3px 0 var(--wash-2); cursor: pointer;
+    max-width: 320px;
+  }
+  .statebtn:hover { background: var(--wash); }
+  .statebtn[aria-expanded="true"] { background: var(--wash); }
+  /* Pine only once something has moved — the same rule the bulb follows. */
+  .statebtn.lit { box-shadow: 0 3px 0 var(--pine); }
+  .statebtn-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .statebtn-n {
+    font-family: var(--mono); font-size: 10.5px; font-variant-numeric: tabular-nums;
+    background: var(--wash); border-radius: 3px; padding: 1px 6px; flex: none;
+  }
+  .statebtn-n:empty { display: none; }
+  .statebtn-cv { color: var(--ink-faint); font-size: 9px; flex: none; }
+
+  /* The bulb sits in the far corner, opposite the state control. It needs no
+     offset for the change titles now — they are on the other side — and it
+     tracks the inspector for free: the canvas is a grid column that narrows
+     when the rail opens, so anything anchored to its right edge moves with
+     it, on the same easing. */
+
+  /* One or two changes read without opening the door. */
+  .change-inline {
+    position: absolute; left: 14px; top: 52px; z-index: 11;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    /* Stops short of the bulb's corner. */
+    max-width: calc(100% - 220px); min-height: 34px;
+  }
+  .change-inline[hidden] { display: none; }
+
+  /* Both panels fly out to the right of the rail rather than dropping from
+     it: the blocks start in the top-left corner, and a panel opening downward
+     lands on the thing it is describing. */
+  .changepanel {
+    position: absolute; left: 14px; top: 52px; z-index: 13;
+    width: 330px; max-height: calc(100% - 40px);
+    display: flex; flex-direction: column;
+    background: var(--paper); border: 2px solid var(--ink);
+    border-radius: 6px; box-shadow: none;
+    transform-origin: 20px 0;
+    opacity: 0; visibility: hidden;
+    transform: scale(.97) translateY(-5px);
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1),
+                visibility 0s linear .2s;
+  }
+  .shell[data-changes="open"] .changepanel {
+    opacity: 1; visibility: visible; transform: none;
+    transition: opacity .18s ease, transform .2s cubic-bezier(.05,.7,.1,1), visibility 0s;
+  }
+  .changepanel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 12px 6px 16px; flex: none;
+  }
+  .changepanel-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+  .changepanel .changebar-groups {
+    flex-direction: column; align-items: stretch; gap: 5px;
+    padding: 0 16px 14px; overflow-y: auto; min-height: 0;
+  }
+  .changepanel .change-chip { justify-content: space-between; width: 100%; }
+  .changepanel .lead {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-faint); padding-bottom: 2px;
+  }
+
+  /* ---------- the plan review ---------- */
+
+  /* A proposed block is drawn as a block that is not there yet: the same
+     geometry, hollowed out. Dashes rather than opacity alone, because opacity
+     alone reads as "disabled" — something you may not touch — and this is the
+     opposite: it is the only thing on the sheet you are being asked about.
+     The pine base comes off too; a block resting on the sheet is what a block
+     that exists looks like. */
+  .node[data-proposed="true"] {
+    border-style: dashed;
+    background: color-mix(in oklab, var(--paper) 92%, transparent);
+    box-shadow: none;
+    cursor: default;
+  }
+  .node[data-proposed="true"] .node-name { opacity: .75; }
+  .node[data-proposed="true"][data-cut="true"] { opacity: .28; }
+
+  .wires path[data-proposed="true"] { stroke-dasharray: 6 5; opacity: .7; }
+  .wires path[data-proposed="true"][data-cut="true"] { opacity: .2; }
+
+  /* Bottom-right: clear of the state door and the add button on the left, and
+     clear of the bulb's corner above. The one panel that opens itself, so it
+     must not land on any control that could have opened it. */
+  .planpanel {
+    position: absolute; right: 14px; bottom: 14px; z-index: 14;
+    width: 348px; max-height: calc(100% - 80px);
+    background: var(--paper); border: 2px solid var(--ink);
+    border-radius: 6px;
+    display: none;
+  }
+  .shell[data-plan="open"] .planpanel { display: flex; flex-direction: column; }
+
+  .plan-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 12px 6px 16px; flex: none;
+  }
+  .plan-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+
+  .plan-rows { overflow-y: auto; flex: 1; min-height: 0; }
+  .plan-row {
+    display: grid; grid-template-columns: 1.4rem 1fr auto;
+    gap: .5rem; align-items: baseline;
+    padding: .5rem .75rem; border-bottom: 1.5px solid var(--wash);
+    cursor: default;
+  }
+  .plan-row[data-cut="true"] .plan-what { text-decoration: line-through; opacity: .5; }
+  .plan-row .plan-mark { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+  .plan-row .plan-steps { font-size: .8em; color: var(--ink-faint); white-space: nowrap; }
+  .plan-row .plan-why { grid-column: 2 / -1; font-size: .85em; color: var(--ink-soft); }
+  .plan-row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+  .plan-toggle { background: none; border: 0; cursor: pointer; font: inherit; padding: 0 .25rem; }
+
+  .plan-kept {
+    padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft);
+    border-top: 1.5px solid var(--wash); flex: none;
+  }
+  .plan-kept ol { margin: .4rem 0 0; padding-left: 1.2rem; }
+  .plan-kept summary { cursor: pointer; }
+  .plan-note { padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft); flex: none; }
+  .plan-foot {
+    display: flex; gap: .5rem; justify-content: flex-end;
+    padding: .6rem .75rem; border-top: 1.5px solid var(--wash); flex: none;
+  }
+  /* The pine base is the house idiom for the action a control exists for. */
+  .plan-foot .ghost-btn.primary { --lift-ink: var(--pine); }
+  .plan-foot .ghost-btn:disabled { opacity: .5; cursor: default; }
+
+  /* The plan steps behind a proposal, shown when you point at it or tab to
+     it. Hidden rather than dimmed: three rows of quoted prose at once is the
+     plan again, and the reader already has the plan. */
+  .plan-row[data-lit="true"] { background: color-mix(in oklab, var(--pine) 12%, transparent); }
+  .plan-row .plan-said {
+    grid-column: 2 / -1; display: none;
+    margin-top: .35rem; font-size: .85em; font-style: italic; color: var(--ink-soft);
+  }
+  .plan-row[data-lit="true"] .plan-said { display: block; }
+
+  @media (max-width: 900px) {
+    .planpanel { left: 10px; right: 10px; width: auto; max-height: 54vh; }
+  }

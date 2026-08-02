@@ -1,0 +1,34 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# spike output (contains prompts + model responses, not worth versioning)
+spike/results-*.json
+
+# python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# idea-hunting notes — strategy, not product. stays on this machine.
+problem-research.md
+problem-1-deep-dive.md
+docs/demand-research.html
+docs/research-sources.html
+docs/writeup-notes.md
+PR-FAQ.md
+
+# the index of all of the above. describes the local notes, so it stays local too.
+DOCS.md
+
+# playwright scratch
+.playwright-mcp/
+
+# brainstorming mockups — working sketches, not product
+.superpowers/
+
+# plangolin's own sheet when dogfooding on this repo
+/plangolin/
