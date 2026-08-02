@@ -47,7 +47,7 @@ test("the route ships only what the panel reads, not the whole review", async ()
   const s = await listen(plans);
   try {
     const { review } = await fetch(s.base + "/api/plan").then((r) => r.json());
-    assert.deepEqual(Object.keys(review).sort(), ["delta", "id", "note", "status", "steps"]);
+    assert.deepEqual(Object.keys(review).sort(), ["delta", "id", "note", "reach", "status", "steps"]);
     assert.equal("nodes" in review, false);
     assert.equal("plan" in review, false);
   } finally { await s.close(); }

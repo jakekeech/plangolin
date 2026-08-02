@@ -26,7 +26,7 @@ export function proposalKey(kind, a, b) {
   return kind === "edge" ? `edge:${a}>${b}` : `${kind}:${a}`;
 }
 
-export function buildBrief({ nodes, steps, delta, accepted, truncated = false }) {
+export function buildBrief({ nodes, steps, delta, reach = [], accepted, truncated = false }) {
   const names = new Map((nodes || []).map((n) => [n.id, n.name || n.id]));
   const d = {
     additions: delta.additions || [], touches: delta.touches || [],
@@ -70,6 +70,10 @@ export function buildBrief({ nodes, steps, delta, accepted, truncated = false })
     for (const a of build) {
       out.push(`  ${a.name} — ${a.intent}`);
       if (a.dir) out.push(`    lives in: ${a.dir}`);
+      if (a.files && a.files.length) {
+        out.push("    files:");
+        for (const file of a.files) out.push(`      ${file}`);
+      }
       for (const c of edges.filter((e) => e.from === a.id || e.to === a.id)) {
         out.push(`    ${nameOf(c.from)} ──▶ ${nameOf(c.to)} (${c.label})`);
       }
@@ -91,6 +95,9 @@ export function buildBrief({ nodes, steps, delta, accepted, truncated = false })
     out.push("UPDATE");
     for (const t of update) {
       out.push(`  ${nameOf(t.id)} — ${t.why}`);
+      for (const user of reach.filter((r) => r.via === t.id)) {
+        out.push(`    Used by ${nameOf(user.id)} (${user.label})`);
+      }
       for (const line of cite(t.steps || [])) out.push(`    ${line}`);
     }
     out.push("");

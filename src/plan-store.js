@@ -12,6 +12,7 @@
 import { splitSteps, stepCount } from "./plan-steps.js";
 import { buildBrief } from "./plan-brief.js";
 import { planDelta } from "./plan-delta.js";
+import { planReach } from "./plan-reach.js";
 import { load, save, docFromMoves } from "./schema.js";
 import { adopt } from "./adopt.js";
 
@@ -85,7 +86,7 @@ export function createPlanStore() {
         plan: String(plan || ""), steps,
         truncated: stepCount(plan) > steps.length,
         delta: { additions: [], touches: [], connections: [], unplaced: [] },
-        dropped: [], note: "", nodes: [],
+        reach: [], dropped: [], note: "", nodes: [],
       };
       review.note = truncationNote(review);
       return { id: review.id };
@@ -119,13 +120,14 @@ export function createPlanStore() {
         which corner of it a panel happens to render. */
     forBrowser() {
       if (!review) return null;
-      const { id, status, steps, delta, note } = review;
-      return { id, status, steps, delta, note };
+      const { id, status, steps, delta, reach, note } = review;
+      return { id, status, steps, delta, reach, note };
     },
 
-    setDelta(id, { delta, dropped, note }) {
+    setDelta(id, { delta, reach, dropped, note }) {
       if (!review || review.id !== id || review.status !== "thinking") return false;
       review.delta = delta;
+      review.reach = Array.isArray(reach) ? reach : [];
       review.dropped = dropped || [];
       // Two different caveats: the truncation notice is about the plan, a note
       // from fill() is about the model call. Both can be true at once and the
@@ -141,8 +143,12 @@ export function createPlanStore() {
       if (!review || review.status !== "thinking") return;
       const id = review.id;
 
-      let nodes = [];
-      try { nodes = (await load(ws)).doc.nodes; } catch { /* an unreadable sheet is still reviewable */ }
+      let nodes = [], edges = [];
+      try {
+        const { doc } = await load(ws);
+        nodes = doc.nodes;
+        edges = doc.edges;
+      } catch { /* an unreadable sheet is still reviewable */ }
 
       /* A plan reviewed against an empty sheet proposes a block for every
          sentence, because there is nothing for it to attach to — which is the
@@ -168,7 +174,9 @@ export function createPlanStore() {
           return result;
         })();
         try {
-          nodes = (await scanning).moves.filter((m) => m.t === "addNode").map((m) => m.node);
+          const scanned = docFromMoves((await scanning).moves);
+          nodes = scanned.nodes;
+          edges = scanned.edges;
         } catch { /* no scan, no sheet — the review still opens */ }
         // Left on offer even once settled — a later /api/adopt inside the
         // same review still gets this scan, not undefined. open() and
@@ -183,12 +191,21 @@ export function createPlanStore() {
 
       try {
         const out = await delta(nodes, review.steps);
-        store.setDelta(id, { delta: out.delta, dropped: out.dropped });
+        const changedIds = new Set([
+          ...out.delta.touches.map((touch) => touch.id),
+          ...out.delta.connections.flatMap((connection) => [connection.from, connection.to]),
+        ]);
+        store.setDelta(id, {
+          delta: out.delta,
+          reach: planReach(edges, changedIds),
+          dropped: out.dropped,
+        });
         if (out.dropped.length) console.warn("plangolin: plan dropped", out.dropped);
       } catch (err) {
         const steps = review.steps.map((s) => s.n);
         store.setDelta(id, {
           delta: { additions: [], touches: [], connections: [], unplaced: steps.length ? [{ steps, why: "not read" }] : [] },
+          reach: [],
           dropped: [err.message],
           note: err.userFacing ? err.message : "Couldn't read this plan — review it by hand.",
         });
@@ -236,6 +253,7 @@ export function createPlanStore() {
           ? known.map((n) => (renamed.has(n.id) ? { ...n, name: renamed.get(n.id) } : n))
           : posted,
         steps: review.steps, delta: review.delta, truncated: !!review.truncated,
+        reach: review.reach,
         accepted: new Set(Array.isArray(accepted) ? accepted : []),
       });
       review.status = "resolved";

@@ -23,6 +23,7 @@ const MAX_LABEL = 40;
 const MAX_INTENT = 200;
 const MAX_WHY = 200;
 const MAX_FILES_SHOWN = 6;
+const MAX_PLAN_FILES = 6;
 
 const clean = (v, limit) => String(v || "").trim().slice(0, limit);
 
@@ -35,6 +36,13 @@ const clean = (v, limit) => String(v || "").trim().slice(0, limit);
 function safeDir(dir) {
   const p = String(dir || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
   if (!p || /^[a-zA-Z]:/.test(p) || p.split("/").some((seg) => seg === "..")) return "";
+  return p;
+}
+
+function safeFile(file) {
+  if (typeof file !== "string") return "";
+  const p = file.replace(/\\/g, "/").trim();
+  if (!p || p.startsWith("/") || /^[a-zA-Z]:/.test(p) || p.includes("..")) return "";
   return p;
 }
 
@@ -93,10 +101,26 @@ export function validate(parsed, nodeIds, stepCount) {
     if (addedIds.has(id)) { dropped.push(`second addition for "${id}"`); continue; }
     const on = steps(a.steps, `addition "${id}"`);
     if (!on.length) { dropped.push(`addition "${id}" cites no plan step`); continue; }
+    const files = [];
+    if (a.files !== undefined && !Array.isArray(a.files)) {
+      dropped.push(`addition "${id}" files: not an array`);
+    }
+    for (const rawFile of arr(a.files)) {
+      const file = safeFile(rawFile);
+      if (!file) {
+        dropped.push(`addition "${id}" file: unsafe path ${JSON.stringify(rawFile)}`);
+        continue;
+      }
+      if (files.length >= MAX_PLAN_FILES) {
+        dropped.push(`addition "${id}" file: over the ${MAX_PLAN_FILES}-path limit ${JSON.stringify(rawFile)}`);
+        continue;
+      }
+      files.push(file);
+    }
     addedIds.add(id);
     additions.push({
       id, name: clean(a.name, 60) || id, kind: clean(a.kind, 40),
-      intent: clean(a.intent, MAX_INTENT), dir: safeDir(a.dir), steps: on,
+      intent: clean(a.intent, MAX_INTENT), dir: safeDir(a.dir), files, steps: on,
     });
   }
 
@@ -112,8 +136,10 @@ export function validate(parsed, nodeIds, stepCount) {
     if (touched.has(id)) { dropped.push(`second touch for "${id}"`); continue; }
     const on = steps(t.steps, `touch "${id}"`);
     if (!on.length) { dropped.push(`touch "${id}" cites no plan step`); continue; }
+    const size = t.size === "substantial" || t.size === "small" ? t.size : "small";
+    if (size !== t.size) dropped.push(`touch "${id}" size: unsupported value ${JSON.stringify(t.size)}`);
     touched.add(id);
-    touches.push({ id, why: clean(t.why, MAX_WHY), steps: on });
+    touches.push({ id, why: clean(t.why, MAX_WHY), size, steps: on });
   }
 
   const connections = [];

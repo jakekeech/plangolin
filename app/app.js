@@ -2306,20 +2306,25 @@
       const n = node(id);
       return n ? n.name : id;
     };
+    const reachFor = (ids) => (plan.reach || [])
+      .filter((r) => ids.includes(r.via))
+      .map((r) => ({ ...r, name: nameOf(r.id) }));
     const out = [];
     d.additions.forEach((a) => out.push({
       key: planKey("add", a.id), mark: "+", name: a.name, why: a.intent,
       steps: a.steps, lit: [a.id], detail: a.dir ? "New block · lives in " + a.dir : "New block",
+      files: a.files || [], reach: reachFor([a.id]),
     }));
     d.connections.forEach((c) => out.push({
       key: planKey("edge", c.from, c.to), mark: "→",
       name: nameOf(c.from) + " → " + nameOf(c.to), why: c.label,
       steps: c.steps, lit: [c.from, c.to], wire: c.from + " " + c.to,
-      detail: "New line between two blocks",
+      detail: "New line between two blocks", reach: reachFor([c.from, c.to]),
     }));
     d.touches.forEach((x) => out.push({
       key: planKey("touch", x.id), mark: "~", name: nameOf(x.id), why: x.why,
-      steps: x.steps, lit: [x.id], detail: "Existing block · its description changes",
+      steps: x.steps, lit: [x.id], size: x.size || "small",
+      detail: "Existing block · its description changes", reach: reachFor([x.id]),
     }));
     out.push({ summary: true, lit: [] });
     return out;
@@ -2409,6 +2414,7 @@
       document.getElementById("plan-mark").textContent = "";
       document.getElementById("plan-nm").textContent =
         list.length === 1 ? "This plan changes nothing structural" : "That's everything";
+      document.getElementById("plan-size").textContent = "";
       document.getElementById("plan-from").textContent = "";
       document.getElementById("plan-why").textContent =
         (list.length === 1 ? "" : kept + " kept, " + gone + " cut. ") +
@@ -2416,6 +2422,8 @@
           ? idle.length + " plan step" + (idle.length > 1 ? "s" : "") +
             " change nothing about the shape of your system and stay as written."
           : "");
+      document.getElementById("plan-detail").textContent = "";
+      document.getElementById("plan-reach").textContent = "";
       /* The steps themselves, not only how many. This number is the one the
          whole product turns on — it says how much of a long plan you are
          entitled to skim — and a count you cannot check is a claim, not
@@ -2432,9 +2440,13 @@
     } else {
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
       document.getElementById("plan-nm").textContent = s.name;
+      document.getElementById("plan-size").textContent = s.size || "";
       document.getElementById("plan-from").textContent =
         "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
       document.getElementById("plan-why").textContent = planSaysWhat(s);
+      document.getElementById("plan-detail").textContent = (s.files || []).join("\n");
+      document.getElementById("plan-reach").textContent = (s.reach || [])
+        .map((r) => "Used by " + r.name + " (" + r.label + ")").join("\n");
       const said = saidFor(s.steps);
       document.getElementById("plan-quote").innerHTML = said
         ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
@@ -2465,8 +2477,11 @@
     const on = plan && plan.status === "ready" && s && !s.summary;
     shell.dataset.planSpot = on ? "on" : "off";
     const lit = new Set(on ? s.lit : []);
+    const reached = new Set(on ? (s.reach || []).map((r) => r.id) : []);
     for (const el of world.querySelectorAll(".node")) {
-      el.dataset.lit = String(lit.has(el.dataset.id));
+      const isLit = lit.has(el.dataset.id);
+      el.dataset.lit = String(isLit);
+      el.dataset.reach = String(!isLit && reached.has(el.dataset.id));
     }
     for (const el of wires.querySelectorAll("path")) {
       el.dataset.lit = String(on && !!(s && s.wire) && el.dataset.pair === s.wire);

@@ -20,11 +20,37 @@ test("the prompt names every block, its folder and every numbered step", () => {
 
 test("validate keeps a well-formed addition", () => {
   const { delta, dropped } = validate({
-    additions: [{ id: "limiter", name: "Limiter", kind: "", intent: "Refuses.", dir: "src/limit", steps: [1] }],
+    additions: [{ id: "limiter", name: "Limiter", kind: "", intent: "Refuses.", dir: "src/limit", files: ["src/limit/rate-limit.js"], steps: [1] }],
     touches: [], connections: [], unplaced: [{ steps: [2], why: "detail" }],
   }, IDS, 2);
   assert.equal(dropped.length, 0);
   assert.equal(delta.additions[0].id, "limiter");
+  assert.deepEqual(delta.additions[0].files, ["src/limit/rate-limit.js"]);
+});
+
+test("addition files keep only six safe relative paths and report every rejected value", () => {
+  const { delta, dropped } = validate({
+    additions: [{
+      id: "limiter", name: "Limiter", kind: "", intent: "Refuses.", dir: "src/limit",
+      files: [
+        "src/limit/one.js", "/etc/passwd", "../outside.js", "C:\\Windows\\system.ini",
+        "src/limit/two.js", "src/limit/three.js", "src/limit/four.js",
+        "src/limit/five.js", "src/limit/six.js", "src/limit/seven.js",
+      ],
+      steps: [1],
+    }],
+    touches: [], connections: [], unplaced: [],
+  }, IDS, 2);
+
+  assert.deepEqual(delta.additions[0].files, [
+    "src/limit/one.js", "src/limit/two.js", "src/limit/three.js",
+    "src/limit/four.js", "src/limit/five.js", "src/limit/six.js",
+  ]);
+  assert.equal(dropped.filter((reason) => reason.includes("file")).length, 4);
+  assert.match(dropped.join(" "), /\/etc\/passwd/);
+  assert.match(dropped.join(" "), /outside\.js/);
+  assert.match(dropped.join(" "), /system\.ini/);
+  assert.match(dropped.join(" "), /seven\.js/);
 });
 
 // The rule that makes plan references trustworthy. A step number outside the
@@ -53,6 +79,33 @@ test("validate drops a touch on a block that is not on the sheet", () => {
   }, IDS, 2);
   assert.equal(delta.touches.length, 0);
   assert.match(dropped.join(" "), /unknown block: ghost/);
+});
+
+test("touch size keeps the two supported weights", () => {
+  const substantial = validate({
+    additions: [], touches: [{ id: "server", why: "rewrites dispatch", size: "substantial", steps: [1] }],
+    connections: [], unplaced: [],
+  }, IDS, 2);
+  const small = validate({
+    additions: [], touches: [{ id: "schema", why: "adds a field", size: "small", steps: [1] }],
+    connections: [], unplaced: [],
+  }, IDS, 2);
+
+  assert.equal(substantial.delta.touches[0].size, "substantial");
+  assert.equal(small.delta.touches[0].size, "small");
+  assert.equal(substantial.dropped.length, 0);
+  assert.equal(small.dropped.length, 0);
+});
+
+test("an unknown touch size defaults to small and is reported without dropping the touch", () => {
+  const { delta, dropped } = validate({
+    additions: [], touches: [{ id: "server", why: "changes dispatch", size: "huge", steps: [1] }],
+    connections: [], unplaced: [],
+  }, IDS, 2);
+
+  assert.equal(delta.touches.length, 1);
+  assert.equal(delta.touches[0].size, "small");
+  assert.match(dropped.join(" "), /touch "server" size/);
 });
 
 test("a connection may reach a block the same reply is adding", () => {

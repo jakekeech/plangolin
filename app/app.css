@@ -1246,11 +1246,23 @@
   .plan-row1 { display: flex; align-items: baseline; gap: 8px; }
   .plan-mark { font-family: var(--mono); font-size: 15px; color: var(--pine); width: 1ch; flex: none; }
   .plan-nm { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  .plan-size { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
   .plan-from {
     margin-left: auto; font-family: var(--mono); font-size: 11px;
     color: var(--ink-faint); white-space: nowrap; flex: none;
   }
   .plan-why { margin: 5px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+  .plan-detail {
+    display: -webkit-box; margin: 6px 0 0; overflow: hidden;
+    font-family: var(--mono); font-size: 10px; line-height: 1.45; color: var(--ink-faint);
+    white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  }
+  .plan-detail:empty { display: none; }
+  .plan-reach {
+    margin: 7px 0 0; white-space: pre-line;
+    font-size: 12px; line-height: 1.45; color: var(--ink-soft);
+  }
+  .plan-reach:empty { display: none; }
   /* The plan's own sentence, permanently on screen rather than behind a hover.
      A proposal is a claim about something somebody wrote, and the claim and
      the sentence have to be readable together for the reader to check it. */
@@ -1304,6 +1316,9 @@
   .shell[data-plan-spot="on"] .node[data-lit="true"] {
     opacity: 1;
     box-shadow: 0 0 0 5px color-mix(in oklab, var(--pine) 18%, transparent);
+  }
+  .shell[data-plan-spot="on"] .node[data-reach="true"] {
+    opacity: .68; outline: 1.5px dashed var(--pine-soft); outline-offset: 4px;
   }
   .shell[data-plan-spot="on"] .wires path { opacity: .12; }
   .shell[data-plan-spot="on"] .wires path[data-lit="true"] { opacity: 1; }

@@ -16,7 +16,7 @@ const STEPS = [
 
 const DELTA = {
   additions: [
-    { id: "limiter", name: "Limiter", kind: "", intent: "Refuses requests over the ceiling.", dir: "src/limit/", steps: [1] },
+    { id: "limiter", name: "Limiter", kind: "", intent: "Refuses requests over the ceiling.", dir: "src/limit/", files: ["src/limit/rate-limit.js", "src/limit/window.js"], steps: [1] },
     { id: "counters", name: "Counter store", kind: "Redis", intent: "Holds counts across restarts.", dir: "src/limit/redis/", steps: [3] },
   ],
   touches: [{ id: "server", why: "gains a limit check", steps: [2] }],
@@ -32,6 +32,7 @@ test("an accepted addition is named with its folder and its plan steps", () => {
   assert.match(brief, /BUILD/);
   assert.match(brief, /Limiter — Refuses requests over the ceiling\./);
   assert.match(brief, /lives in: src\/limit\//);
+  assert.match(brief, /files:\n\s+src\/limit\/rate-limit\.js\n\s+src\/limit\/window\.js/);
   assert.match(brief, /Server ──▶ Limiter \(checks with\)/);
   assert.match(brief, /from the plan: "Add a limiter"/);
 });
@@ -66,9 +67,14 @@ test("a rejected connection is named too", () => {
 });
 
 test("an accepted touch lands under UPDATE with its reason", () => {
-  const brief = buildBrief({ nodes: NODES, steps: STEPS, delta: DELTA, accepted: new Set([proposalKey("touch", "server")]) });
+  const brief = buildBrief({
+    nodes: NODES, steps: STEPS, delta: DELTA,
+    reach: [{ id: "schema", via: "server", label: "exports API" }],
+    accepted: new Set([proposalKey("touch", "server")]),
+  });
   assert.match(brief, /UPDATE/);
   assert.match(brief, /Server — gains a limit check/);
+  assert.match(brief, /Used by Schema \(exports API\)/);
   assert.match(brief, /from the plan: "Wire it to the server"/);
 });
 

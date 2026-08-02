@@ -26,6 +26,39 @@ test("the delta arrives and the review becomes ready", () => {
   assert.equal(s.current().delta.additions.length, 1);
 });
 
+test("fill sends the browser one-hop users from the sheet used for the delta", async () => {
+  const s = createPlanStore();
+  const { id } = s.open({ plan: PLAN });
+  const system = {
+    version: 1,
+    nodes: [
+      { id: "entry", name: "Package Entry", intent: "Exports the API." },
+      { id: "server", name: "Server", intent: "Serves the app." },
+    ],
+    edges: [{ id: "entry__server", from: "entry", to: "server", label: "exports API" }],
+  };
+  const ws = {
+    root: "/tmp/x",
+    async read(path) { return path === "plangolin/system.json" ? JSON.stringify(system) : null; },
+    async write() {}, async exists() { return false; }, async list() { return []; },
+  };
+
+  await s.fill(ws, {
+    delta: async () => ({
+      delta: {
+        additions: [], touches: [{ id: "server", why: "rewrites dispatch", size: "substantial", steps: [1] }],
+        connections: [], unplaced: [{ steps: [2], why: "detail" }],
+      },
+      dropped: [],
+    }),
+  });
+
+  assert.deepEqual(s.forBrowser().reach, [
+    { id: "entry", via: "server", label: "exports API" },
+  ]);
+  assert.equal(s.current().id, id);
+});
+
 test("a waiter is released by a resolve and gets the brief", async () => {
   const s = createPlanStore();
   const { id } = s.open({ plan: PLAN });
