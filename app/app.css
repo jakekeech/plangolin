@@ -1012,6 +1012,41 @@
    keeps its face and only rises. */
 .retry-go:hover { background: var(--paper); }
 
+/* The same pill in the same place as .retry, because both answer "what now"
+   and only one of them is ever on screen. Green rather than ink: it is the
+   only thing here reporting that something succeeded, and the review panel
+   already spends ink on the things still being decided. */
+.handoff {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px;
+  max-width: calc(100% - 28px); flex-wrap: wrap; justify-content: center;
+  background: var(--paper); border: 1.5px solid var(--pine); border-radius: 999px;
+  padding: 6px 7px 6px 15px; box-shadow: 0 2px 0 var(--wash);
+  font-size: 12.5px; color: var(--ink); z-index: 5;
+  animation: handoff-in 260ms cubic-bezier(.2, .7, .3, 1) both;
+}
+@keyframes handoff-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .handoff { animation: none; }
+}
+.handoff-say { color: var(--pine); font-weight: 600; }
+/* The receipt. Mono because it is a count, and faint because the person is
+   being sent somewhere else — it is there to be checked, not read. */
+.handoff-count {
+  font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+  letter-spacing: .02em;
+}
+.handoff-go { color: var(--ink-soft); }
+.handoff-x {
+  background: none; border: 0; border-radius: 999px;
+  width: 20px; height: 20px; padding: 0; flex: none;
+  font-size: 14px; line-height: 1; color: var(--ink-faint); cursor: pointer;
+}
+.handoff-x:hover { background: var(--paper-2); color: var(--ink); }
+
   /* Not part of the change you are looking at. Faded rather than hidden — the
      rest of the system is what makes the part legible, and a block that
      vanished would take its position with it, which is the one thing the

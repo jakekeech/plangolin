@@ -2440,7 +2440,11 @@
     const note = document.getElementById("plan-note");
     const body = document.getElementById("plan-body");
     const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
-    if (!plan) { setPlanOpen(false); return; }
+    /* The stepper's keys travel with the panel, and nothing else renders
+       them — so a review that ends without passing through here left K and C
+       floating over the sheet, offering shortcuts for a decision already
+       sent. Cleared on the way out, at the one place every ending shares. */
+    if (!plan) { setPlanOpen(false); renderHint(); return; }
 
     const approve = document.getElementById("plan-approve");
     const thinking = plan.status === "thinking";
@@ -2796,7 +2800,7 @@
      like one that worked, which meant the person walked away believing they
      had answered while the command they were holding up sat out its timeout.
      An error in the panel is a worse minute and a better ten. */
-  async function sendAnswer(body) {
+  async function sendAnswer(body, sent) {
     if (planSending) return;
     planSending = true;
     const note = document.getElementById("plan-note");
@@ -2808,7 +2812,8 @@
       });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out || out.ok === false) throw new Error("refused");
-      plan = null; movedGhosts.clear(); setPlanOpen(false); drawPlan();
+      plan = null; movedGhosts.clear(); renderPlan(); drawPlan();
+      handOff(sent);
     } catch {
       // Only if this is still the review that was being answered — a poll may
       // have moved on while the request was out.
@@ -2839,11 +2844,12 @@
       ...d.touches.map((t) => planKey("touch", t.id)),
       ...d.connections.map((c) => planKey("edge", c.from, c.to)),
     ];
+    const accepted = all.filter((k) => !planCut.has(k));
     sendAnswer({
       id: plan.id,
-      accepted: all.filter((k) => !planCut.has(k)),
+      accepted,
       nodes: S.nodes.map((n) => ({ id: n.id, name: n.name, intent: n.intent })),
-    });
+    }, { kept: accepted.length, cut: all.length - accepted.length });
   });
 
   /* The review this browser has already drawn, as id and status. Compared
@@ -2876,7 +2882,9 @@
          gains its ghosts. Both change what a fit should produce, so this is
          the moment to compute one. */
       if (plan && plan.status === "ready" && wasThinking) fitAfterSettling();
-      if (plan) setPlanOpen(true);
+      // A second review means the session came back here, so the note telling
+      // them to leave has been answered by events.
+      if (plan) { clearHandoff(); setPlanOpen(true); }
       renderPlan();
       drawPlan();
     } catch { /* the server is restarting, or gone. Ask again shortly. */ }
@@ -5047,6 +5055,44 @@
 
   function clearRetry() {
     if (retryEl) { retryEl.remove(); retryEl = null; }
+  }
+
+  /* ---------------------- the end of this tab's job ----------------------
+
+     Approving sends the answer and closes the panel, and that is the whole
+     of what the browser used to say about it. A panel that disappears looks
+     the same whether it was answered or crashed, and either way the next
+     move is in a window this one cannot point at: the agent is waiting in
+     the session the person came from, and it is building now.
+
+     So it says three things and no more: that it went, what went, and where
+     to be. It carries no control, because there is nothing left to decide
+     here — only a way to put it away.                                     */
+  let handoffEl = null;
+
+  function handOff(sent) {
+    clearHandoff();
+    // "Scan again" throws the sheet away and draws a new one. A sheet a plan
+    // has just been approved against is the one sheet where that is
+    // destructive, so the offer goes when the answer does.
+    clearRetry();
+    const kept = sent ? sent.kept : 0;
+    const cut = sent ? sent.cut : 0;
+    handoffEl = document.createElement("div");
+    handoffEl.className = "handoff";
+    handoffEl.setAttribute("role", "status");
+    handoffEl.innerHTML =
+      '<span class="handoff-say">Sent</span>' +
+      '<span class="handoff-count">' + kept + " kept" +
+        (cut ? " · " + cut + " cut" : "") + "</span>" +
+      '<span class="handoff-go">Back to Claude Code — it builds from here.</span>' +
+      '<button class="handoff-x" aria-label="Dismiss">×</button>';
+    canvas.appendChild(handoffEl);
+    handoffEl.querySelector(".handoff-x").addEventListener("click", clearHandoff);
+  }
+
+  function clearHandoff() {
+    if (handoffEl) { handoffEl.remove(); handoffEl = null; }
   }
 
   async function replay(moves) {
