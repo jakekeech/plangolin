@@ -1800,6 +1800,8 @@
         '<div class="node-intent">' + esc(a.intent || "") + "</div>";
       world.appendChild(el);
     }
+    // The elements were just replaced; put the spotlight back on the new ones.
+    applyPlanLit();
   }
 
   /* Where a proposed block sits. Beside the block it connects to, because a
@@ -2265,9 +2267,8 @@
     renderNodes();
     requestAnimationFrame(() => {
       measure(); renderWires();
-      // After, not before: renderNodes replaces every element, so a spotlight
-      // applied first would be set on elements already on their way out.
-      litPlanNodes(planStepList()[planAt]);
+      // renderWires rebuilds the paths too, so the wire half is re-applied here.
+      applyPlanLit();
     });
   }
 
@@ -2304,16 +2305,39 @@
     return out;
   }
 
-  /* The plan's own sentence for a step. This pairing — the proposal and the
-     words that produced it — is the argument the feature makes, so it is on
-     screen rather than behind a hover. Clipped because a step can run to six
-     hundred characters and the full text is in the plan, which the reader has. */
-  const SAID_CHARS = 190;
+  /* A plan step is raw material — it can run to six hundred characters and
+     carry a fenced code block, and pasting one into a review panel produced a
+     wall nobody could read. The benchmark's guided tour never quotes source
+     either: each of its steps carries a short authored title and description
+     written to be read.
+     We already have the authored version — a proposal's own name and its one
+     line. So the plan's own words move behind a disclosure, for the reader who
+     wants to check the proposal against what was actually written, and the
+     panel leads with the short form. */
+  const SAID_CHARS = 240;
   function saidFor(list) {
     const byStep = new Map((plan.steps || []).map((s) => [s.n, s.text]));
-    return (list || []).map((n) => (byStep.get(n) || "").trim()).filter(Boolean)
-      .map((x) => (x.length > SAID_CHARS ? x.slice(0, SAID_CHARS - 1).trimEnd() + "…" : x))
-      .map((x) => "“" + x + "”").join("  ");
+    const text = (list || []).map((n) => (byStep.get(n) || "").trim()).filter(Boolean)
+      // A fence in a plan is an illustration of the change, not a description
+      // of it, and it is the single worst thing to drop into a narrow panel.
+      .map((x) => x.replace(/```[\s\S]*?```/g, " ").replace(/`([^`]*)`/g, "$1"))
+      .map((x) => x.replace(/\s+/g, " ").trim())
+      .filter(Boolean).join(" · ");
+    if (!text) return "";
+    return text.length > SAID_CHARS ? text.slice(0, SAID_CHARS - 1).trimEnd() + "…" : text;
+  }
+
+  /* What this proposal is, in a sentence, before any of its detail. "calls
+     into" on its own is a label for a line, not a description of a change. */
+  function planSaysWhat(s) {
+    if (s.mark === "+") return "A new block — " + (s.why || "no description given");
+    /* The label is a caption for a line — "provides middleware", "reads /
+       writes" — not a verb that takes an object, so dropping it between the
+       two names produced "Express Core provides middleware Rate Limiter".
+       It goes after the pair instead, where a caption belongs. */
+    // The pair is already the heading; repeating it here says nothing twice.
+    if (s.mark === "→") return "A new line" + (s.why ? " — " + s.why : " between two blocks that exist");
+    return "Its description changes — " + (s.why || "no reason given");
   }
 
   function renderPlan() {
@@ -2379,8 +2403,11 @@
       document.getElementById("plan-nm").textContent = s.name;
       document.getElementById("plan-from").textContent =
         "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
-      document.getElementById("plan-why").textContent = s.why || s.detail;
-      document.getElementById("plan-quote").textContent = saidFor(s.steps);
+      document.getElementById("plan-why").textContent = planSaysWhat(s);
+      const said = saidFor(s.steps);
+      document.getElementById("plan-quote").innerHTML = said
+        ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
+        : "";
       foot.dataset.stage = "step";
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
@@ -2397,7 +2424,12 @@
      rest of the system is the context that makes the lit part legible, and a
      block that vanished would take its position with it — the same reason the
      change view dims rather than filters. */
-  function litPlanNodes(s) {
+  /* The flags only. Called from renderNodes, so any redraw — a pan, a poll, a
+     proposal being cut — re-applies the spotlight instead of losing it. It was
+     lost twice by being applied from the outside, which is the tell that it
+     belongs with whatever builds the elements. */
+  function applyPlanLit() {
+    const s = planStepList()[planAt];
     const on = plan && plan.status === "ready" && s && !s.summary;
     shell.dataset.planSpot = on ? "on" : "off";
     const lit = new Set(on ? s.lit : []);
@@ -2405,9 +2437,16 @@
       el.dataset.lit = String(lit.has(el.dataset.id));
     }
     for (const el of wires.querySelectorAll("path")) {
-      el.dataset.lit = String(on && !!s.wire && el.dataset.pair === s.wire);
+      el.dataset.lit = String(on && !!(s && s.wire) && el.dataset.pair === s.wire);
     }
-    if (on) bringIntoView([...lit]);
+    return on ? [...lit] : null;
+  }
+
+  /* Flags, then the camera. Only on a step change: moving the sheet on every
+     redraw would fight the pan the reader is in the middle of. */
+  function litPlanNodes(s) {
+    const lit = applyPlanLit();
+    if (lit && lit.length) bringIntoView(lit);
   }
 
   /* Bring the blocks a step is about into view, without re-fitting the whole
@@ -2485,20 +2524,35 @@
     const grip = document.getElementById("plan-grip");
     let drag = null;
 
+    /* Where the panel is allowed to come to rest. The top-left corner is not
+       one of them: the question mark lives there, and it is the one control
+       that must stay reachable while the panel is being moved around — it
+       holds the request the whole review is judged against. So the left-hand
+       docks start below it rather than on top of it. */
     const docks = () => {
       const c = canvas.getBoundingClientRect();
+      const ask = document.getElementById("askwrap");
+      const clear = ask && !ask.hidden ? ask.getBoundingClientRect().height + 24 : 0;
       const w = panel.offsetWidth, h = panel.offsetHeight, m = 14;
+      const bottom = Math.max(m, c.height - h - m);
       return [
-        { x: m, y: m }, { x: c.width - w - m, y: m },
-        { x: m, y: c.height - h - m }, { x: c.width - w - m, y: c.height - h - m },
+        { x: m, y: Math.max(m + clear, m) },
+        { x: c.width - w - m, y: m },
+        { x: m, y: bottom },
+        { x: c.width - w - m, y: bottom },
         { x: c.width - w - m, y: (c.height - h) / 2 },
       ];
     };
     const nearest = (x, y) => docks().reduce((best, d) =>
       ((d.x - x) ** 2 + (d.y - y) ** 2) < ((best.x - x) ** 2 + (best.y - y) ** 2) ? d : best);
 
+    // The canvas pans on mousedown and the panel sits inside it, so without
+    // this a drag of the panel drags the sheet underneath it as well.
+    grip.addEventListener("mousedown", (ev) => ev.stopPropagation());
     grip.addEventListener("pointerdown", (ev) => {
       if (ev.target.closest("button")) return;
+      ev.stopPropagation();
+      ev.preventDefault();
       const p = panel.getBoundingClientRect(), c = canvas.getBoundingClientRect();
       drag = { dx: ev.clientX - p.left, dy: ev.clientY - p.top, c };
       panel.dataset.dragging = "true";
@@ -2517,6 +2571,14 @@
     const land = () => {
       if (!drag) return;
       const d = nearest(parseFloat(panel.style.left), parseFloat(panel.style.top));
+      // Belt and braces: a dock is a target, not a guarantee, and the mark
+      // must be reachable however the panel got where it is.
+      const ask = document.getElementById("askwrap");
+      if (ask && !ask.hidden) {
+        const c = canvas.getBoundingClientRect(), a = ask.getBoundingClientRect();
+        const ax = a.right - c.left + 10, ay = a.bottom - c.top + 10;
+        if (d.x < ax && d.y < ay) d.y = ay;
+      }
       panel.dataset.dragging = "false";        // transition back on: this glides
       panel.style.left = d.x + "px";
       panel.style.top = d.y + "px";
