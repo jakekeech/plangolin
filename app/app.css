@@ -1232,6 +1232,14 @@
 
   /* Only there when it has something to say. Empty it still held its padding,
      which put a blank band between the header and the proposal. */
+  /* Folded down to its title bar. Everything below the grip goes; the grip
+     stays, so it is still draggable and still says how far through you are. */
+  .planpanel[data-collapsed="true"] .plan-note,
+  .planpanel[data-collapsed="true"] .plan-body,
+  .planpanel[data-collapsed="true"] .plan-foot { display: none; }
+  .planpanel[data-collapsed="true"] .plan-grip { border-bottom: 0; }
+  .planpanel[data-collapsed="true"] { width: auto; min-width: 240px; }
+
   .plan-note { padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft); flex: none; }
   .plan-note:empty { display: none; }
   .plan-body { padding: 11px 14px 2px; overflow-y: auto; min-height: 0; }
@@ -1294,6 +1302,24 @@
   }
   .shell[data-plan-spot="on"] .wires path { opacity: .12; }
   .shell[data-plan-spot="on"] .wires path[data-lit="true"] { opacity: 1; }
+
+  /* A line has a direction and a dashed stroke does not show it. The dashes
+     travel from source to target, which answers "which way round is this?"
+     without a second arrowhead or a label — the path is already drawn from
+     the `from` block to the `to` block, so the offset alone carries it.
+     6 + 5 = 11, so one dash-and-gap of travel loops seamlessly. */
+  @keyframes plan-flow { to { stroke-dashoffset: -11; } }
+  .shell[data-plan-spot="on"] .wires path[data-lit="true"][data-proposed="true"] {
+    stroke-width: 2.5;
+    animation: plan-flow .75s linear infinite;
+  }
+  /* Motion is the only carrier of direction here, so under reduced motion the
+     line still has to say it — it stops travelling and thickens instead. */
+  @media (prefers-reduced-motion: reduce) {
+    .shell[data-plan-spot="on"] .wires path[data-lit="true"][data-proposed="true"] {
+      animation: none; stroke-width: 3.5;
+    }
+  }
 
   /* Drawn by the same hand as the bulb it replaces. Top left, opposite the
      panel: the review is dragged around and the request must never end up

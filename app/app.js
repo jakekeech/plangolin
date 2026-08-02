@@ -2626,7 +2626,21 @@
      the way back to it — a panel that says "this is a question you are asked"
      must not have a ✕ that loses the question, because the command asking it
      is blocked for ten minutes either way. */
-  document.getElementById("plan-close").addEventListener("click", () => setPlanOpen(false));
+  /* Collapse, not close.
+     The ✕ used to hand the review back to the state door, which was the way
+     into it again — and that door is switched off now, so closing lost the
+     question with no way to ask for it back. The command is blocked either
+     way, so there is nothing to be gained by making it disappear: it folds
+     down to its title bar, still draggable, and unfolds when you click it.
+     Skip remains the way to answer "not interested". */
+  document.getElementById("plan-close").addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const panel = document.getElementById("planpanel");
+    const shut = panel.dataset.collapsed === "true";
+    panel.dataset.collapsed = String(!shut);
+    ev.currentTarget.textContent = shut ? "×" : "▸";
+    ev.currentTarget.setAttribute("aria-label", shut ? "Collapse" : "Expand");
+  });
 
   /* The answer, and the only thing that leaves the browser. Awaited and
      checked before the panel closes: a POST that failed used to look exactly
