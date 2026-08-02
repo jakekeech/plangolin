@@ -12,6 +12,16 @@ before any code is written.
 
 ## What to do
 
+**0. If no request came with the command, ask for one and stop.**
+
+`/plangolin` on its own carries no task. Ask what the user wants to build or
+change, and wait. **Read nothing first** — not the codebase, not the git log.
+Exploring before you know the request spends time and context on questions
+nobody asked, and the answer will send you somewhere else anyway.
+
+One sentence is enough to start: *"a marketplace for secondhand textbooks"* or
+*"add rate limiting to the API"*.
+
 **1. Plan it the way you normally would.**
 
 Read the code first if there is any. Write the plan you would have written
