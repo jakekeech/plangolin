@@ -21,16 +21,22 @@ const TEN_MINUTES = 10 * 60 * 1000;
 
 const note = (line) => process.stderr.write(line + "\n");
 
-export function openBrowser(url) {
-  const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
-    : process.platform === "darwin" ? ["open", [url]]
-    : ["xdg-open", [url]];
-  spawn(cmd, args, { stdio: "ignore", detached: true })
-    .on("error", () => note(`plangolin: couldn't open a browser — open ${url} yourself`))
-    .unref();
+/* The URL, not a browser tab.
+   A review is started by an agent mid-task, not by a person clicking a button,
+   and a tab that appears over whatever you were doing is an interruption you
+   did not ask for — the more so because the same plan can be reviewed twice.
+   Printing the link leaves the decision to open it where it belongs. Set
+   PLANGOLIN_OPEN=1 to get the old behaviour back. */
+export function announce(url) {
+  if (process.env.PLANGOLIN_OPEN === "1") {
+    const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
+      : process.platform === "darwin" ? ["open", [url]]
+      : ["xdg-open", [url]];
+    spawn(cmd, args, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  }
 }
 
-export async function runReview(root, planText, { open = openBrowser, timeout = TEN_MINUTES } = {}) {
+export async function runReview(root, planText, { open = announce, timeout = TEN_MINUTES } = {}) {
   const plan = String(planText || "").trim();
   if (!plan) {
     note("plangolin: that plan file is empty — nothing to review.");
@@ -50,8 +56,11 @@ export async function runReview(root, planText, { open = openBrowser, timeout = 
 
   const { id } = plans.open({ plan });
   note("");
-  note(`  plangolin   ${url}`);
-  note("  Reading this plan against your sheet…");
+  note("  Review this plan at:");
+  note(`      ${url}`);
+  note("");
+  note("  Reading it against your sheet… the page fills in on its own.");
+  note("  This command waits here until you press Approve or Skip.");
   note("");
   open(url);
 
