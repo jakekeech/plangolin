@@ -48,9 +48,25 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
   const plans = createPlanStore();
   const server = createServer(ws, plans);
 
+  /* A known port, not an ephemeral one.
+     The link is printed on stderr, and the agent that runs this command does
+     not stream stderr — it reports "7 lines" and shows them once the command
+     has finished, which is precisely when the link stops being useful. So the
+     port has to be guessable in advance: the skill tells the reader where to
+     look before it starts waiting. Walks upward if something already holds it,
+     the same way `plangolin` itself does. */
+  const wanted = Number(process.env.PLANGOLIN_REVIEW_PORT || 4300);
   await new Promise((done, fail) => {
-    server.once("error", fail);
-    server.listen(0, "127.0.0.1", done);
+    let attempts = 12;
+    const tryPort = (port) => {
+      const onErr = (err) => {
+        if (err.code === "EADDRINUSE" && attempts-- > 0) return tryPort(port + 1);
+        fail(err);
+      };
+      server.once("error", onErr);
+      server.listen(port, "127.0.0.1", () => { server.removeListener("error", onErr); done(); });
+    };
+    tryPort(wanted);
   });
   const url = `http://localhost:${server.address().port}`;
 

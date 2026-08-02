@@ -53,7 +53,19 @@ Write it as markdown. `plangolin/PLAN.md` in the project is a good default. If
 you have already written the plan to a file — a spec, a plan document — use
 that path and do not write it twice.
 
-**3. Run the review, and wait for it.**
+**3. Tell the user where to look, then run the review and wait for it.**
+
+Say this first, on its own line, before you run anything:
+
+> Open **http://localhost:4300** to review the plan.
+
+That matters more than it looks. The command prints the link itself, but on
+stderr — and this harness does not show a running command's output, so the link
+does not appear until the command has finished, which is exactly when it stops
+being useful. You saying it first is the only way the reader gets it in time.
+
+The port is 4300 unless something already holds it, in which case the command
+walks upward and prints the real one when it finishes.
 
 ```bash
 plangolin review plangolin/PLAN.md
