@@ -42,6 +42,15 @@ still loaded.
 Otherwise that is everything. The plugin carries the whole tool — there is
 nothing to `npm install`, no API key to configure, and no build step.
 
+**Turn on auto-update while you are there.** Claude Code enables it by default
+only for Anthropic's own marketplaces; everything else, including this, stays
+pinned to the version you installed until you say otherwise:
+
+`/plugin` → **Marketplaces** → **plangolin** → **Enable auto-update**
+
+Without it, `/plugin update plangolin@plangolin` is the manual equivalent. Note
+the `@plangolin` — the bare name returns "plugin not found".
+
 ## Use it
 
 In any project:
