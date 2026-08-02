@@ -6,7 +6,18 @@
   Turn an AI agent's wall-of-text plan into a visual preview of what it would change.
 </p>
 
+<p align="center">
+  <a href="https://github.com/jakekeech/plangolin/actions/workflows/test.yml"><img src="https://github.com/jakekeech/plangolin/actions/workflows/test.yml/badge.svg" alt="tests" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1F6F6B" alt="MIT licence" /></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A520-1F6F6B" alt="Node 20 or newer" />
+  <img src="https://img.shields.io/badge/runtime_dependencies-0-1F6F6B" alt="No runtime dependencies" />
+  <a href="https://code.claude.com/docs/en/plugins-reference"><img src="https://img.shields.io/badge/Claude_Code-plugin-565857" alt="Claude Code plugin" /></a>
+</p>
+
 ## Quick start
+
+Requires **Node 20+** and **Claude Code**. Nothing else — no API key, no
+account, no build step.
 
 In Claude Code:
 
@@ -119,10 +130,11 @@ Restart Claude Code after either update path.
 
 ## Open a sheet without a plan
 
-The diagram is stored in the repository and can be used on its own:
+The diagram is stored in the repository and can be used on its own. The plugin
+install above already provides this; from a clone, run it directly:
 
 ```bash
-npx plangolin
+node src/cli.js          # from a clone of this repository
 ```
 
 ```text
@@ -159,9 +171,32 @@ and edge roll-up happen locally. The hosted service receives the plan, file
 paths, a dependency list, and short excerpts; it holds the prompts and model
 key so the user does not need one.
 
+One identifier travels with each call: an anonymous UUID plangolin generates on
+first run and keeps in `~/.config/plangolin/install.json`. It carries no email,
+no account and no machine detail — deleting the file makes a new one. It exists
+to rate limit and to answer "did anyone run this twice". There are no accounts,
+no tokens and no database.
+
 When the network or model is unavailable, plangolin keeps the structural
 grouping and states the reason. Unusable model output is dropped rather than
 allowed to corrupt the sheet.
+
+## What it does not do
+
+Worth knowing before you rely on it:
+
+- **It reviews shape, not correctness.** It can tell you a plan adds a block
+  and wires it to your database. It cannot tell you the plan will work.
+- **The mapping from plan steps to blocks is model-produced**, so a step can
+  land on the wrong block or on none. Every proposal carries the plan's own
+  wording under **▸ what the plan said**, which is there so you can check it
+  rather than trust it.
+- **A review waits ten minutes, then gives up** and lets the agent proceed with
+  the plan as written. Nothing is a dead end, but an unanswered review is not a
+  rejection.
+- **It reads one project at a time**, from the directory the command ran in.
+- **Claude Code only.** The review itself is plain HTTP and a browser, but the
+  plan-and-wait handshake is a Claude Code skill.
 
 ## Deliberately switched off
 
@@ -195,5 +230,9 @@ There are no runtime dependencies and no build step. plangolin uses Node's own
 `http` and `fs`; the font is embedded in the CSS. Node 20+.
 
 ```bash
-npm test        # 338 tests
+npm test        # 343 tests
 ```
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). © jakekeech.
