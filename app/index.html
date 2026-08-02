@@ -79,17 +79,36 @@
          you go, it is a question you are asked, so there is no door to it.
          Nothing in here is saved — the proposals are drawn on the sheet as
          ghosts and thrown away when the review is answered. -->
+    <!-- One proposal at a time. A list of six with tick boxes is another thing
+         to skim, and skimming is the problem this whole feature exists for.
+         Floats over the sheet and can be dragged: where it needs to be depends
+         on where the block under discussion is. -->
     <aside class="planpanel" id="planpanel" aria-hidden="true">
-      <header class="plan-head">
-        <h2>Claude's plan</h2>
-        <button class="rail-close" id="plan-close" aria-label="Close">×</button>
+      <header class="plan-grip" id="plan-grip">
+        <span class="plan-ttl">Claude's plan</span>
+        <span class="plan-dots" id="plan-dots"></span>
+        <span class="plan-of" id="plan-of"></span>
+        <button class="plan-x" id="plan-close" aria-label="Close">×</button>
       </header>
       <div class="plan-note" id="plan-note"></div>
-      <div class="plan-rows" id="plan-rows"></div>
-      <div class="plan-kept" id="plan-kept"></div>
+      <div class="plan-body" id="plan-body">
+        <div class="plan-row1">
+          <span class="plan-mark" id="plan-mark"></span>
+          <span class="plan-nm" id="plan-nm"></span>
+          <span class="plan-from" id="plan-from"></span>
+        </div>
+        <p class="plan-why" id="plan-why"></p>
+        <p class="plan-quote" id="plan-quote"></p>
+      </div>
       <footer class="plan-foot">
+        <button class="ghost-btn" id="plan-cut" type="button">Cut</button>
+        <button class="ghost-btn" id="plan-keep" type="button">Keep</button>
         <button class="ghost-btn" id="plan-skip" type="button">Skip</button>
         <button class="ghost-btn primary" id="plan-approve" type="button">Approve</button>
+        <span class="plan-nav">
+          <button id="plan-prev" type="button" aria-label="Previous">◀</button>
+          <button id="plan-next" type="button" aria-label="Next">▶</button>
+        </span>
       </footer>
     </aside>
 
@@ -98,11 +117,15 @@
          tells you something is wrong is visibly the same hand that drew the
          sheet. Dark filament when the sheet is clean; lit, and glowing in the
          highest open severity, when it isn't. -->
-    <button class="bulb" id="bulb" aria-expanded="false" aria-controls="checkpanel"
-            aria-label="What's missing">
-      <canvas id="bulb-mark" aria-hidden="true"></canvas>
-      <span class="bulb-n" id="check-count"></span>
-    </button>
+    <!-- What you asked for, in the bulb's place and drawn by the same hand.
+         Opens leftward: the sentence is long and the sheet is to the left. -->
+    <div class="askwrap" id="askwrap" data-open="false">
+      <div class="askbrief" id="ask-brief"></div>
+      <button class="ask" id="ask" type="button" aria-expanded="false"
+              aria-controls="ask-brief" aria-label="What did I ask for?">
+        <canvas id="ask-mark" aria-hidden="true"></canvas>
+      </button>
+    </div>
 
     <!-- Floats over the sheet. Hovering a check pans the sheet to the block it
          is about, so nothing important stays hidden behind the panel. -->

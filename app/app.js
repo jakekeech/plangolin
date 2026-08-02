@@ -598,7 +598,7 @@
      avoid it would be the first dependency in the product. */
   let plan = null;
   let planCut = new Set();          // proposal keys the user has crossed out
-  let planLit = null;               // the proposal being hovered, for the steps
+  let planAt = 0;                   // which proposal the stepper is showing
   let planSending = false;          // an answer is in flight; see sendAnswer
   /* Whether /api/doc handed us a document. A review opens either way — see
      boot() — but a ghost does not: it is drawn beside the block it relates to,
@@ -1136,7 +1136,48 @@
             [[19.2,9.6],[21.2,9.6]], [[0.8,9.6],[-1.2,9.6]]],
   };
 
+  /* The way back to what you asked for. Drawn rather than iconographic, from
+     the same wobble as the bulb it replaces and the mark on the sheet — a
+     question set in a UI font next to hand-drawn blocks reads as a control
+     borrowed from somewhere else.
+
+     Two strokes and a dot, in the bulb's 22-unit space so both marks sit at
+     the same weight: the hook, and the point under it. */
+  const ASK = {
+    hook: [[5.2,6.6],[5.8,3.6],[8.4,2.1],[11.6,2.4],[13.7,4.4],[13.6,7.2],
+           [11.4,9.1],[10.2,10.8],[10.05,12.7]],
+    dot:  [[10,15.9],[10.5,16.2],[10.3,16.9],[9.6,16.9],[9.5,16.2],[10,15.9]],
+  };
+
   let lastBulbSev = null;
+
+
+  /* Same construction as drawBulb, minus the severity states: this control has
+     nothing to warn about. It says "here is the sentence you typed", and the
+     only thing it ever needs to be is legible. */
+  function drawAsk() {
+    const cv = document.getElementById("ask-mark");
+    if (!cv) return;
+    const W = 26, H = 30, dpr = window.devicePixelRatio || 1;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const css = getComputedStyle(document.documentElement);
+    const k = W / 22, amp = 300 / W;
+    ctx.save();
+    ctx.translate(1.6, 4);
+    ctx.scale(k, k);
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = css.getPropertyValue("--ink").trim();
+    ctx.lineWidth = 1.7;
+    markPath(ctx, markWobble(ASK.hook, 23, amp), false); ctx.stroke();
+    ctx.fillStyle = ctx.strokeStyle;
+    markPath(ctx, markWobble(ASK.dot, 51, amp * .5), true); ctx.fill();
+    ctx.restore();
+  }
 
   function drawBulb(sev) {
     lastBulbSev = sev;
@@ -2222,30 +2263,21 @@
      of it. */
   function drawPlan() {
     renderNodes();
-    requestAnimationFrame(() => { measure(); renderWires(); });
+    requestAnimationFrame(() => {
+      measure(); renderWires();
+      // After, not before: renderNodes replaces every element, so a spotlight
+      // applied first would be set on elements already on their way out.
+      litPlanNodes(planStepList()[planAt]);
+    });
   }
 
-  function renderPlan() {
-    const rows = document.getElementById("plan-rows");
-    const kept = document.getElementById("plan-kept");
-    const note = document.getElementById("plan-note");
-    if (!plan) { setPlanOpen(false); return; }
-
-    /* Approve is not offered until there is something to approve. Pressed
-       while the delta is still being read it would resolve the review against
-       an empty one — agreeing to nothing, in the shape of agreeing to
-       everything. Skip stays live: deciding not to look is a decision you can
-       make at any point. */
-    const approve = document.getElementById("plan-approve");
-    approve.disabled = plan.status === "thinking";
-
-    if (plan.status === "thinking") {
-      note.textContent = "Reading the plan against your sheet…";
-      rows.innerHTML = ""; kept.innerHTML = "";
-      return;
-    }
-    note.textContent = plan.note || "";
-
+  /* The proposals, in the order a person would meet them: what is new, then
+     what it connects to, then what that changes about what already exists.
+     A final entry is not a proposal but the summary — the place Approve
+     lives, so agreeing happens after seeing everything rather than beside
+     the first thing. */
+  function planStepList() {
+    if (!plan || plan.status !== "ready") return [];
     const d = plan.delta;
     const nameOf = (id) => {
       const added = d.additions.find((a) => a.id === id);
@@ -2253,95 +2285,280 @@
       const n = node(id);
       return n ? n.name : id;
     };
-    const steps = (list) =>
-      '<span class="plan-steps">step' + (list.length > 1 ? "s" : "") + " " + list.join(", ") + "</span>";
-    const byStep = new Map(plan.steps.map((s) => [s.n, s.text]));
+    const out = [];
+    d.additions.forEach((a) => out.push({
+      key: planKey("add", a.id), mark: "+", name: a.name, why: a.intent,
+      steps: a.steps, lit: [a.id], detail: a.dir ? "New block · lives in " + a.dir : "New block",
+    }));
+    d.connections.forEach((c) => out.push({
+      key: planKey("edge", c.from, c.to), mark: "→",
+      name: nameOf(c.from) + " → " + nameOf(c.to), why: c.label,
+      steps: c.steps, lit: [c.from, c.to], wire: c.from + " " + c.to,
+      detail: "New line between two blocks",
+    }));
+    d.touches.forEach((x) => out.push({
+      key: planKey("touch", x.id), mark: "~", name: nameOf(x.id), why: x.why,
+      steps: x.steps, lit: [x.id], detail: "Existing block · its description changes",
+    }));
+    out.push({ summary: true, lit: [] });
+    return out;
+  }
 
-    /* The plan's own sentences, carried on the row and revealed when it is
-       lit. This is the link the feature is arguing for — a proposal is a
-       claim about a sentence somebody wrote, and "steps 2, 3" is a reference
-       to that sentence rather than the sentence. Clipped because a step can
-       run to six hundred characters and this is a 348px panel; the full text
-       is in the plan, which the reader has. */
-    const SAID_CHARS = 140;
-    const said = (list) => {
-      const words = list.map((n) => (byStep.get(n) || "").trim()).filter(Boolean)
-        .map((t) => (t.length > SAID_CHARS ? t.slice(0, SAID_CHARS - 1).trimEnd() + "…" : t));
-      return words.length
-        ? '<div class="plan-said">' + words.map((t) => "“" + esc(t) + "”").join("<br>") + "</div>"
-        : "";
+  /* The plan's own sentence for a step. This pairing — the proposal and the
+     words that produced it — is the argument the feature makes, so it is on
+     screen rather than behind a hover. Clipped because a step can run to six
+     hundred characters and the full text is in the plan, which the reader has. */
+  const SAID_CHARS = 190;
+  function saidFor(list) {
+    const byStep = new Map((plan.steps || []).map((s) => [s.n, s.text]));
+    return (list || []).map((n) => (byStep.get(n) || "").trim()).filter(Boolean)
+      .map((x) => (x.length > SAID_CHARS ? x.slice(0, SAID_CHARS - 1).trimEnd() + "…" : x))
+      .map((x) => "“" + x + "”").join("  ");
+  }
+
+  function renderPlan() {
+    const note = document.getElementById("plan-note");
+    const body = document.getElementById("plan-body");
+    const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
+    if (!plan) { setPlanOpen(false); return; }
+
+    const approve = document.getElementById("plan-approve");
+    const thinking = plan.status === "thinking";
+    approve.disabled = thinking;
+
+    if (thinking) {
+      renderAsk();
+      note.textContent = "Reading the plan against your sheet…";
+      body.hidden = true;
+      document.getElementById("plan-dots").innerHTML = "";
+      document.getElementById("plan-of").textContent = "";
+      foot.dataset.stage = "thinking";
+      return;
+    }
+    note.textContent = plan.note || "";
+    body.hidden = false;
+
+    const list = planStepList();
+    if (planAt >= list.length) planAt = list.length - 1;
+    if (planAt < 0) planAt = 0;
+    const s = list[planAt];
+
+    /* The dots carry state, not just position: filled for kept, hollow for
+       cut, so what you have already decided is legible without stepping back
+       through it. */
+    document.getElementById("plan-dots").innerHTML = list.map((st, i) => {
+      const cls = ["plan-dot"];
+      if (i === planAt) cls.push("now");
+      else if (st.summary) cls.push("end");
+      else if (planCut.has(st.key)) cls.push("cut");
+      else if (i < planAt) cls.push("kept");
+      return '<span class="' + cls.join(" ") + '"></span>';
+    }).join("");
+    document.getElementById("plan-of").textContent = (planAt + 1) + " of " + list.length;
+
+    const cut = document.getElementById("plan-cut");
+    const keep = document.getElementById("plan-keep");
+    if (s.summary) {
+      const kept = list.filter((x) => !x.summary && !planCut.has(x.key)).length;
+      const gone = list.filter((x) => !x.summary && planCut.has(x.key)).length;
+      const idle = [...new Set(plan.delta.unplaced.flatMap((u) => u.steps))];
+      document.getElementById("plan-mark").textContent = "";
+      document.getElementById("plan-nm").textContent =
+        list.length === 1 ? "This plan changes nothing structural" : "That's everything";
+      document.getElementById("plan-from").textContent = "";
+      document.getElementById("plan-why").textContent =
+        (list.length === 1 ? "" : kept + " kept, " + gone + " cut. ") +
+        (idle.length
+          ? idle.length + " plan step" + (idle.length > 1 ? "s" : "") +
+            " change nothing about the shape of your system and stay as written."
+          : "");
+      document.getElementById("plan-quote").textContent = "";
+      foot.dataset.stage = "summary";
+    } else {
+      document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
+      document.getElementById("plan-nm").textContent = s.name;
+      document.getElementById("plan-from").textContent =
+        "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
+      document.getElementById("plan-why").textContent = s.why || s.detail;
+      document.getElementById("plan-quote").textContent = saidFor(s.steps);
+      foot.dataset.stage = "step";
+      keep.classList.toggle("on", !planCut.has(s.key));
+      cut.classList.toggle("on", planCut.has(s.key));
+    }
+    document.getElementById("plan-panel-cut") && 0;
+    document.getElementById("plan-prev").disabled = planAt === 0;
+    document.getElementById("plan-next").disabled = planAt >= list.length - 1;
+
+    litPlanNodes(s);
+    renderAsk();
+  }
+
+  /* Dim everything the current step is not about. Dimmed, never hidden: the
+     rest of the system is the context that makes the lit part legible, and a
+     block that vanished would take its position with it — the same reason the
+     change view dims rather than filters. */
+  function litPlanNodes(s) {
+    const on = plan && plan.status === "ready" && s && !s.summary;
+    shell.dataset.planSpot = on ? "on" : "off";
+    const lit = new Set(on ? s.lit : []);
+    for (const el of world.querySelectorAll(".node")) {
+      el.dataset.lit = String(lit.has(el.dataset.id));
+    }
+    for (const el of wires.querySelectorAll("path")) {
+      el.dataset.lit = String(on && !!s.wire && el.dataset.pair === s.wire);
+    }
+    if (on) bringIntoView([...lit]);
+  }
+
+  /* Bring the blocks a step is about into view, without re-fitting the whole
+     sheet. Re-fitting on every step would rescale the drawing under the
+     reader four times in a row, and the thing they are being asked to judge
+     is where a block sits relative to the others. */
+  function bringIntoView(ids) {
+    const boxes = ids.map((id) => {
+      const n = node(id);
+      if (n && Number.isFinite(n.x)) return { x: n.x, y: n.y, h: heights[id] || 80 };
+      const g = ghostAt.get(id);
+      return g ? { x: g.x, y: g.y, h: GHOST_H } : null;
+    }).filter(Boolean);
+    if (!boxes.length) return;
+    const x0 = Math.min(...boxes.map((b) => b.x)), y0 = Math.min(...boxes.map((b) => b.y));
+    const x1 = Math.max(...boxes.map((b) => b.x + NODE_W));
+    const y1 = Math.max(...boxes.map((b) => b.y + b.h));
+    const panel = document.getElementById("planpanel").getBoundingClientRect();
+    const cr = canvas.getBoundingClientRect();
+    const pad = 40;
+    const L = pad, R = canvas.clientWidth - pad, T = pad, B = canvas.clientHeight - pad;
+    const sx0 = x0 * zoom + pan.x, sy0 = y0 * zoom + pan.y;
+    const sx1 = x1 * zoom + pan.x, sy1 = y1 * zoom + pan.y;
+    // Clear of the panel too — it is the thing asking the question, so it must
+    // not be sitting on top of the answer.
+    const pl = panel.left - cr.left, pr = panel.right - cr.left;
+    const pt = panel.top - cr.top, pb = panel.bottom - cr.top;
+    const hits = sx1 > pl && sx0 < pr && sy1 > pt && sy0 < pb;
+    let dx = 0, dy = 0;
+    if (sx0 < L) dx = L - sx0; else if (sx1 > R) dx = R - sx1;
+    if (sy0 < T) dy = T - sy0; else if (sy1 > B) dy = B - sy1;
+    if (hits && !dx) dx = (pl - 24) - sx1 > -9999 ? Math.min(0, (pl - 24) - sx1) : 0;
+    if (dx || dy) panTo(pan.x + dx, pan.y + dy, zoom);
+  }
+
+  /* What you asked for, in the corner the bulb used to hold. A plan is judged
+     against a request, and by the time four proposals have gone past, the
+     request is the thing hardest to hold in your head. */
+  function renderAsk() {
+    const wrap = document.getElementById("askwrap");
+    const brief = document.getElementById("ask-brief");
+    if (!wrap || !brief) return;
+    const live = !!plan;
+    wrap.hidden = !live;
+    if (!live) { wrap.dataset.open = "false"; return; }
+    const idle = plan.status === "ready"
+      ? [...new Set(plan.delta.unplaced.flatMap((u) => u.steps))].length : 0;
+    const total = (plan.steps || []).length;
+    brief.innerHTML =
+      "<b>You asked for</b><span>" + esc(plan.request || firstStepText()) + "</span>" +
+      (total ? '<b style="margin-top:5px">' + total + " plan step" + (total > 1 ? "s" : "") +
+        (idle ? " · " + idle + " change nothing structural" : "") + "</b>" : "");
+  }
+
+  /* The server sends the plan's steps but not the sentence that prompted it,
+     so the plan's own opening line stands in — which is what a plan opens
+     with anyway. */
+  function firstStepText() {
+    const s = (plan.steps || [])[0];
+    return s ? s.text : "";
+  }
+
+  document.getElementById("ask").addEventListener("click", () => {
+    const wrap = document.getElementById("askwrap");
+    const open = wrap.dataset.open !== "true";
+    wrap.dataset.open = String(open);
+    document.getElementById("ask").setAttribute("aria-expanded", String(open));
+  });
+
+  /* Dragged by its grip, and let go somewhere sensible. The docks are never
+     drawn: showing the targets explains the mechanism when the glide already
+     communicates the result. */
+  (function draggablePanel() {
+    const panel = document.getElementById("planpanel");
+    const grip = document.getElementById("plan-grip");
+    let drag = null;
+
+    const docks = () => {
+      const c = canvas.getBoundingClientRect();
+      const w = panel.offsetWidth, h = panel.offsetHeight, m = 14;
+      return [
+        { x: m, y: m }, { x: c.width - w - m, y: m },
+        { x: m, y: c.height - h - m }, { x: c.width - w - m, y: c.height - h - m },
+        { x: c.width - w - m, y: (c.height - h) / 2 },
+      ];
     };
+    const nearest = (x, y) => docks().reduce((best, d) =>
+      ((d.x - x) ** 2 + (d.y - y) ** 2) < ((best.x - x) ** 2 + (best.y - y) ** 2) ? d : best);
 
-    const row = (key, mark, what, why, on) =>
-      '<div class="plan-row" data-key="' + esc(key) + '" data-cut="' + planCut.has(key) + '">' +
-        '<button class="plan-toggle plan-mark" type="button" aria-label="Include or exclude">' +
-          (planCut.has(key) ? "✗" : mark) + "</button>" +
-        '<span class="plan-what">' + esc(what) + "</span>" + steps(on) +
-        (why ? '<span class="plan-why">' + esc(why) + "</span>" : "") +
-        said(on) +
-      "</div>";
+    grip.addEventListener("pointerdown", (ev) => {
+      if (ev.target.closest("button")) return;
+      const p = panel.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+      drag = { dx: ev.clientX - p.left, dy: ev.clientY - p.top, c };
+      panel.dataset.dragging = "true";
+      // Anchored by left/top from here on, so the CSS right/bottom rules stop
+      // fighting the drag.
+      panel.style.left = (p.left - c.left) + "px";
+      panel.style.top = (p.top - c.top) + "px";
+      panel.style.right = "auto"; panel.style.bottom = "auto";
+      grip.setPointerCapture(ev.pointerId);
+    });
+    grip.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      panel.style.left = (ev.clientX - drag.c.left - drag.dx) + "px";
+      panel.style.top = (ev.clientY - drag.c.top - drag.dy) + "px";
+    });
+    const land = () => {
+      if (!drag) return;
+      const d = nearest(parseFloat(panel.style.left), parseFloat(panel.style.top));
+      panel.dataset.dragging = "false";        // transition back on: this glides
+      panel.style.left = d.x + "px";
+      panel.style.top = d.y + "px";
+      drag = null;
+    };
+    grip.addEventListener("pointerup", land);
+    grip.addEventListener("pointercancel", land);
+  })();
 
-    rows.innerHTML =
-      d.additions.map((a) => row(planKey("add", a.id), "+", a.name, a.intent, a.steps)).join("") +
-      d.connections.map((c) => row(planKey("edge", c.from, c.to), "→",
-        nameOf(c.from) + " → " + nameOf(c.to), c.label, c.steps)).join("") +
-      d.touches.map((t) => row(planKey("touch", t.id), "~", nameOf(t.id), t.why, t.steps)).join("");
-
-    /* The steps that change nothing, counted and collapsed. This is the
-       number the whole feature turns on: it says how much of a six-hundred
-       word plan the reader is entitled to skim, and it is arrived at by
-       subtraction in plan-delta.js rather than taken from a model. */
-    const idle = [...new Set(d.unplaced.flatMap((u) => u.steps))].sort((a, b) => a - b);
-    kept.innerHTML = idle.length
-      ? "<details><summary>" + idle.length + " step" + (idle.length > 1 ? "s" : "") +
-        " change nothing structural</summary><ol>" +
-        idle.map((n) => '<li value="' + n + '">' + esc(byStep.get(n) || "") + "</li>").join("") +
-        "</ol></details>"
-      : "";
-
-    if (!rows.innerHTML) {
-      rows.innerHTML = '<div class="plan-note">This plan changes nothing about the shape of your system.</div>';
-    }
-    litPlanRow();
-  }
-
-  // Which row is showing its plan steps. One at a time: two rows of quoted
-  // prose open at once is a document, not a highlight.
-  function litPlanRow() {
-    for (const el of document.querySelectorAll(".plan-row")) {
-      el.dataset.lit = String(el.dataset.key === planLit);
-    }
-  }
-
-  function litPlan(key) {
-    if (key === planLit) return;                  // moving inside one row is not a change
-    planLit = key;
-    litPlanRow();
-  }
-
-  document.getElementById("plan-rows").addEventListener("click", (ev) => {
-    const row = ev.target.closest(".plan-row");
-    if (!row) return;
-    const key = row.dataset.key;
-    planCut.has(key) ? planCut.delete(key) : planCut.add(key);
+  function planDecide(cutIt) {
+    const list = planStepList();
+    const s = list[planAt];
+    if (!s || s.summary) return;
+    cutIt ? planCut.add(s.key) : planCut.delete(s.key);
     renderPlan();
     drawPlan();
+  }
+
+  function planGo(delta) {
+    const list = planStepList();
+    planAt = Math.max(0, Math.min(list.length - 1, planAt + delta));
+    renderPlan();
+  }
+
+  document.getElementById("plan-next").addEventListener("click", () => planGo(1));
+  document.getElementById("plan-prev").addEventListener("click", () => planGo(-1));
+  document.getElementById("plan-keep").addEventListener("click", () => { planDecide(false); planGo(1); });
+  document.getElementById("plan-cut").addEventListener("click", () => { planDecide(true); planGo(1); });
+
+  /* Reviewing is a reading task, and six decisions is six round trips to the
+     mouse otherwise. */
+  document.addEventListener("keydown", (ev) => {
+    if (!plan || !planOpen() || plan.status !== "ready") return;
+    const el = document.activeElement;
+    if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
+    if (el && el.isContentEditable) return;
+    if (ev.key === "ArrowRight") { planGo(1); ev.preventDefault(); }
+    else if (ev.key === "ArrowLeft") { planGo(-1); ev.preventDefault(); }
+    else if (ev.key === "k" || ev.key === "K") { planDecide(false); planGo(1); }
+    else if (ev.key === "c" || ev.key === "C") { planDecide(true); planGo(1); }
   });
 
-  /* Hovering a proposal reveals the plan steps behind it. The link between the
-     picture and the prose is the argument this feature is making, so it has to
-     be a gesture rather than a click — and the same reveal is on focus,
-     because a keyboard cannot hover and the argument is not optional. */
-  const planRows = document.getElementById("plan-rows");
-  planRows.addEventListener("mouseover", (ev) => {
-    const row = ev.target.closest(".plan-row");
-    litPlan(row ? row.dataset.key : null);
-  });
-  planRows.addEventListener("mouseleave", () => litPlan(null));
-  planRows.addEventListener("focusin", (ev) => {
-    const row = ev.target.closest(".plan-row");
-    if (row) litPlan(row.dataset.key);
-  });
 
   /* Closing is not answering. The review stays live and the state door becomes
      the way back to it — a panel that says "this is a question you are asked"
@@ -2422,7 +2639,7 @@
       // A new review starts with everything accepted. Rejecting is the
       // deliberate act; requiring a click per block to approve a plan you
       // agree with would make the common case the expensive one.
-      if (plan && plan.status === "ready") planCut = new Set();
+      if (plan && plan.status === "ready") { planCut = new Set(); planAt = 0; }
       if (plan) setPlanOpen(true);
       renderPlan();
       drawPlan();
@@ -2659,6 +2876,8 @@
         add("path", {
           d: curve(p), class: "wire",
           "data-proposed": "true",
+          // So a step can light the one line it is about.
+          "data-pair": c.from + " " + c.to,
           "data-cut": String(planCut.has(planKey("edge", c.from, c.to))),
         });
       }
@@ -4696,11 +4915,11 @@
 
   /* ---------------------- the bulb, the panel, the post-it ---------------- */
 
+  /* The bulb's element is gone from the markup — the question mark now holds
+     that corner. Its wiring below is kept whole and simply has nothing to bind
+     to, so turning CHANGE_VIEW back on is a markup change rather than an
+     archaeology exercise. Every use is guarded rather than deleted. */
   const bulbBtn = document.getElementById("bulb");
-  // The state door is already hidden in the markup and only ever revealed by
-  // renderChangeBar, which now returns early. The bulb is shown by default,
-  // so it is taken out here.
-  if (!CHANGE_VIEW) bulbBtn.hidden = true;
   const panelEl = document.getElementById("checkpanel");
 
   const checksOpen = () => shell.dataset.checks === "open";
@@ -4727,13 +4946,16 @@
     if (open) { closePicker(); if (changesOpen()) setChangesOpen(false); }
     shell.dataset.checks = open ? "open" : "closed";
     panelEl.setAttribute("aria-hidden", String(!open));
-    bulbBtn.setAttribute("aria-expanded", String(open));
+    if (bulbBtn) bulbBtn.setAttribute("aria-expanded", String(open));
     drawBulb(lastBulbSev);
+    drawAsk();
     if (open) drawOverlay();
   }
-  bulbBtn.addEventListener("click", () => setChecksOpen(!checksOpen()));
-  bulbBtn.addEventListener("mouseenter", () => drawBulb(lastBulbSev));
-  bulbBtn.addEventListener("mouseleave", () => drawBulb(lastBulbSev));
+  if (bulbBtn) {
+    bulbBtn.addEventListener("click", () => setChecksOpen(!checksOpen()));
+    bulbBtn.addEventListener("mouseenter", () => drawBulb(lastBulbSev));
+    bulbBtn.addEventListener("mouseleave", () => drawBulb(lastBulbSev));
+  }
   document.getElementById("checks-close").addEventListener("click", () => setChecksOpen(false));
 
   document.getElementById("add-fab").addEventListener("click", (ev) => {
@@ -4789,7 +5011,7 @@
   /* All three read their colours from the tokens. There is one palette now, so
      the only thing that repaints them is being drawn in the first place —
      nothing the OS does can change what they should look like. */
-  drawBrandMark(); drawFavicon(); drawBulb(lastBulbSev);
+  drawBrandMark(); drawFavicon(); drawBulb(lastBulbSev); drawAsk();
 
   boot();
 })();

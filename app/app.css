@@ -1179,60 +1179,160 @@
   /* Bottom-right: clear of the state door and the add button on the left, and
      clear of the bulb's corner above. The one panel that opens itself, so it
      must not land on any control that could have opened it. */
+  /* Floating, and draggable by its grip. Where the panel needs to be depends
+     on where the block under discussion is, and no fixed corner is right for
+     every sheet — so it is put somewhere by hand and remembers nothing, since
+     the next review is a different shape. */
   .planpanel {
-    position: absolute; right: 14px; bottom: 14px; z-index: 14;
-    width: 348px; max-height: calc(100% - 80px);
+    position: absolute; right: 14px; top: 68px; z-index: 14;
+    width: 404px; max-height: calc(100% - 110px);
     background: var(--paper); border: 2px solid var(--ink);
-    border-radius: 6px;
-    display: none;
+    border-radius: 7px; box-shadow: 0 6px 22px rgba(27, 27, 25, .13);
+    display: none; user-select: none;
+    /* The snap is a glide, not a jump: an abrupt one reads as the panel being
+       yanked out of your hand. Suppressed while dragging so it tracks the
+       pointer exactly. */
+    transition: left .34s cubic-bezier(.22, 1, .36, 1), top .34s cubic-bezier(.22, 1, .36, 1);
   }
   .shell[data-plan="open"] .planpanel { display: flex; flex-direction: column; }
-
-  .plan-head {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 12px 6px 16px; flex: none;
+  .planpanel[data-dragging="true"] {
+    transition: none; box-shadow: 0 12px 34px rgba(27, 27, 25, .22);
   }
-  .plan-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
 
-  .plan-rows { overflow-y: auto; flex: 1; min-height: 0; }
-  .plan-row {
-    display: grid; grid-template-columns: 1.4rem 1fr auto;
-    gap: .5rem; align-items: baseline;
-    padding: .5rem .75rem; border-bottom: 1.5px solid var(--wash);
-    cursor: default;
+  .plan-grip {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 11px; border-bottom: 1px solid var(--rule, rgba(27,27,25,.12));
+    cursor: grab; flex: none;
   }
-  .plan-row[data-cut="true"] .plan-what { text-decoration: line-through; opacity: .5; }
-  .plan-row .plan-mark { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
-  .plan-row .plan-steps { font-size: .8em; color: var(--ink-faint); white-space: nowrap; }
-  .plan-row .plan-why { grid-column: 2 / -1; font-size: .85em; color: var(--ink-soft); }
-  .plan-row:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
-  .plan-toggle { background: none; border: 0; cursor: pointer; font: inherit; padding: 0 .25rem; }
+  .plan-grip:active { cursor: grabbing; }
+  .plan-ttl {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .plan-dots { display: flex; gap: 5px; }
+  /* The dots carry what you decided, not only where you are: filled for kept,
+     hollow-grey for cut. What you have already answered stays legible without
+     stepping back through it. */
+  .plan-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    border: 1.5px solid var(--ink-faint); box-sizing: border-box;
+    transition: background .18s ease, border-color .18s ease, transform .18s ease;
+  }
+  .plan-dot.kept { background: var(--pine-soft); border-color: var(--pine-soft); }
+  .plan-dot.cut { background: var(--ink-faint); border-color: var(--ink-faint); opacity: .5; }
+  .plan-dot.now { background: var(--pine); border-color: var(--pine); transform: scale(1.2); }
+  .plan-of {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  }
+  .plan-x {
+    border: 0; background: none; cursor: pointer; padding: 0 2px;
+    font-size: 16px; line-height: 1; color: var(--ink-faint);
+  }
 
-  .plan-kept {
-    padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft);
-    border-top: 1.5px solid var(--wash); flex: none;
-  }
-  .plan-kept ol { margin: .4rem 0 0; padding-left: 1.2rem; }
-  .plan-kept summary { cursor: pointer; }
   .plan-note { padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft); flex: none; }
-  .plan-foot {
-    display: flex; gap: .5rem; justify-content: flex-end;
-    padding: .6rem .75rem; border-top: 1.5px solid var(--wash); flex: none;
+  .plan-body { padding: 12px 14px 2px; overflow-y: auto; min-height: 0; }
+  .plan-row1 { display: flex; align-items: baseline; gap: 8px; }
+  .plan-mark { font-family: var(--mono); font-size: 15px; color: var(--pine); width: 1ch; flex: none; }
+  .plan-nm { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+  .plan-from {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-faint); white-space: nowrap; flex: none;
   }
-  /* The pine base is the house idiom for the action a control exists for. */
+  .plan-why { margin: 5px 0 0; font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+  /* The plan's own sentence, permanently on screen rather than behind a hover.
+     A proposal is a claim about something somebody wrote, and the claim and
+     the sentence have to be readable together for the reader to check it. */
+  .plan-quote {
+    margin: 9px 0 0; padding: 7px 10px;
+    border-left: 3px solid var(--wash);
+    background: color-mix(in oklab, var(--wash) 22%, var(--paper));
+    font-size: 12px; font-style: italic; color: var(--ink-soft); line-height: 1.45;
+  }
+  .plan-quote:empty { display: none; }
+
+  .plan-foot {
+    display: flex; align-items: center; gap: 7px;
+    padding: 11px 14px 12px; flex: none;
+  }
   .plan-foot .ghost-btn.primary { --lift-ink: var(--pine); }
   .plan-foot .ghost-btn:disabled { opacity: .5; cursor: default; }
-
-  /* The plan steps behind a proposal, shown when you point at it or tab to
-     it. Hidden rather than dimmed: three rows of quoted prose at once is the
-     plan again, and the reader already has the plan. */
-  .plan-row[data-lit="true"] { background: color-mix(in oklab, var(--pine) 12%, transparent); }
-  .plan-row .plan-said {
-    grid-column: 2 / -1; display: none;
-    margin-top: .35rem; font-size: .85em; font-style: italic; color: var(--ink-soft);
+  .plan-foot .ghost-btn.on { background: var(--pine); border-color: var(--pine); color: var(--paper); }
+  /* Keep and Cut belong to a proposal; Approve belongs to the whole review.
+     Showing all four at once offers a decision about everything beside a
+     decision about one thing, which is how you agree to more than you read. */
+  .plan-foot[data-stage="step"] #plan-approve,
+  .plan-foot[data-stage="summary"] #plan-keep,
+  .plan-foot[data-stage="summary"] #plan-cut,
+  .plan-foot[data-stage="thinking"] #plan-keep,
+  .plan-foot[data-stage="thinking"] #plan-cut { display: none; }
+  .plan-nav { margin-left: auto; display: flex; gap: 5px; }
+  .plan-nav button {
+    font: inherit; width: 30px; height: 28px; cursor: pointer;
+    border: 1.5px solid var(--ink); border-radius: 5px; background: var(--paper);
   }
-  .plan-row[data-lit="true"] .plan-said { display: block; }
+  .plan-nav button:disabled { border-color: var(--grid); color: var(--ink-faint); cursor: default; }
+
+  /* Everything the current step is not about, dimmed. Dimmed and not hidden:
+     the rest of the system is what makes the lit part mean anything, and a
+     block that vanished would take its position with it. */
+  .shell[data-plan-spot="on"] .node { opacity: .2; }
+  .shell[data-plan-spot="on"] .node[data-lit="true"] {
+    opacity: 1;
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--pine) 18%, transparent);
+  }
+  .shell[data-plan-spot="on"] .wires path { opacity: .12; }
+  .shell[data-plan-spot="on"] .wires path[data-lit="true"] { opacity: 1; }
+
+  /* Where the bulb was, drawn by the same hand. Opens leftward because the
+     sentence is long and the sheet is to the left — a panel that grew rightward
+     would leave the screen. */
+  .askwrap {
+    position: absolute; right: 14px; top: 14px; z-index: 12;
+    display: flex; align-items: center; justify-content: flex-end;
+  }
+  .ask {
+    display: flex; align-items: center; justify-content: center;
+    padding: 6px 8px; min-height: 44px;
+    background: none; border: none; box-shadow: none; cursor: pointer;
+  }
+  .ask canvas {
+    display: block;
+    transform-origin: 50% 60%;
+    transition: transform .16s cubic-bezier(.34, 1.4, .64, 1);
+  }
+  .ask:hover canvas, .ask:focus-visible canvas { transform: rotate(-7deg) scale(1.06); }
+  .ask:active canvas { transform: rotate(-4deg) scale(1.01); }
+
+  .askbrief {
+    max-width: 0; max-height: 0; overflow: hidden; opacity: 0; padding: 0;
+    align-self: center;
+    background: var(--paper); border: 2px solid var(--ink); border-right: 0;
+    border-radius: 6px 0 0 6px;
+    font-size: 13px; line-height: 1.4; color: var(--ink);
+    transition: max-width .38s cubic-bezier(.22, 1, .36, 1),
+                max-height .38s ease, opacity .2s ease, padding .38s ease;
+  }
+  .askwrap[data-open="true"] .askbrief {
+    max-width: min(620px, 46vw); max-height: 120px; opacity: 1; padding: 9px 13px;
+  }
+  .askbrief b {
+    display: block; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 400; margin-bottom: 2px;
+  }
+  /* Two lines. The request is the thing you are checking the plan against, not
+     a document to read here — past two lines it stops being a reminder. */
+  .askbrief span {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 
   @media (max-width: 900px) {
-    .planpanel { left: 10px; right: 10px; width: auto; max-height: 54vh; }
+    .planpanel {
+      left: 10px; right: 10px; top: auto; bottom: 10px;
+      width: auto; max-height: 54vh;
+    }
+    /* Dragging a panel that spans the screen has nowhere to go. */
+    .plan-grip { cursor: default; }
   }
