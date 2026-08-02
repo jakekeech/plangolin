@@ -2855,13 +2855,6 @@
          gains its ghosts. Both change what a fit should produce, so this is
          the moment to compute one. */
       if (plan && plan.status === "ready" && wasThinking) fitAfterSettling();
-      /* An empty folder puts "No code here yet" over the canvas, which is the
-         right thing to say to someone who opened plangolin on the wrong
-         directory and the wrong thing to say to someone reviewing a plan for a
-         project that does not exist yet. The ghosts render underneath it either
-         way, so without this the greenfield case looks like a dead end while
-         the whole answer sits one layer down. */
-      if (plan) clearIdle();
       if (plan) setPlanOpen(true);
       renderPlan();
       drawPlan();
@@ -5117,22 +5110,32 @@
 
       let caps = { canScan: false, canGenerate: false };
       let dirs = { dirs: [] };
+      let review = null;
       try {
-        const [capsRes, dirsRes] = await Promise.all([fetch("/api/capabilities"), fetch("/api/fs/dirs")]);
+        /* The review is asked for here, beside the other two, because this
+           branch decides whether to cover the canvas and a live review is the
+           one answer that settles it. Reading `plan` instead would be reading a
+           race: startPlanPolling() fired its first poll just above, and whether
+           it has landed by now depends on which fetch the network finishes
+           first. An empty folder is only a dead end when nobody has proposed
+           anything to put in it. */
+        const [capsRes, dirsRes, planRes] = await Promise.all([
+          fetch("/api/capabilities"), fetch("/api/fs/dirs"), fetch("/api/plan"),
+        ]);
         caps = await capsRes.json();
         dirs = await dirsRes.json();
+        review = (await planRes.json()).review;
       } catch (e) {}
 
+      const reviewLive = !!review && (review.status === "thinking" || review.status === "ready");
       const hasCode = !!(dirs.dirs && dirs.dirs.length);
-      if (!hasCode) {
-        /* Not when a review is already in flight — pollPlan clears this a beat
-           later anyway, and painting it first reads as an error the plan then
-           has to argue with. `plan` is set by the pollPlan() that
-           startPlanPolling() fired above, which resolves during the two
-           fetches this branch just awaited. */
-        if (!plan) {
-          idleStart("No code here yet", "plangolin reads a project you already have. Run it from a folder with source in it.");
-        }
+      if (reviewLive) {
+        /* Nothing. Every splash below says some version of "there is nothing to
+           show", and a review is something to show — the proposals draw on the
+           bare sheet, which is exactly what a plan for a project that does not
+           exist yet looks like. */
+      } else if (!hasCode) {
+        idleStart("No code here yet", "plangolin reads a project you already have. Run it from a folder with source in it.");
       } else if (!caps.canScan) {
         // Only reachable if the service itself is unreachable; the scan needs
         // no key of yours.
