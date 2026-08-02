@@ -7,11 +7,12 @@
 </p>
 
 <p align="center">
-  <em><strong>A Claude Code plugin that reviews a change before it is written.</strong>
-  Reads JavaScript, TypeScript, Python and Go directly, and falls back to a
-  language-agnostic reader for everything else.
+  <em><strong>Plan review for AI coding agents.</strong>
+  Reads JavaScript, TypeScript, Python and Go with dedicated import readers, and
+  finds references by filename in every other language — so a Rust or Ruby
+  project still gets a graph.
   <br />
-  Nothing to set up: no API key, no account, no build step.</em>
+  Ships as a Claude Code plugin. No API key, no account, no build step.</em>
 </p>
 
 <p align="center">
