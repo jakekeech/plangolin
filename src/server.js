@@ -1,5 +1,5 @@
 import http from "node:http";
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { load, save } from "./schema.js";
@@ -15,6 +15,19 @@ import { createPlanStore } from "./plan-store.js";
 import { readHunks } from "./hunks.js";
 
 const APP_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "app");
+
+/* Read once, from a URL relative to this file rather than from the cwd: the
+   server runs in the user's project, not in its own directory.
+
+   On screen because three times now a fix has been published and then reported
+   as still broken, and the missing step each time was knowing which build was
+   actually running. A number the reader can see is the difference between
+   "it doesn't work" and "I'm on 0.2.1". Failing soft — an unreadable
+   package.json costs the footer, not the app. */
+let VERSION = "";
+try {
+  VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version || "";
+} catch { /* no footer, then */ }
 const TYPES = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json" };
 
 const json = (res, code, body) => {
@@ -71,6 +84,12 @@ export function createServer(ws, plans = createPlanStore()) {
          a provider directly. */
       if (url.pathname === "/api/capabilities" && req.method === "GET") {
         return json(res, 200, { canScan: true, canGenerate: !!pickProvider() });
+      }
+
+      /* Its own route rather than a field on /api/doc, because the version is
+         worth showing on exactly the paths where /api/doc failed. */
+      if (url.pathname === "/api/version" && req.method === "GET") {
+        return json(res, 200, { version: VERSION });
       }
 
 

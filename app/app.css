@@ -272,6 +272,16 @@
     font-family: var(--mono); font-size: 11px;
     color: var(--ink-faint); user-select: none; pointer-events: none;
   }
+  /* Centred on the canvas rather than the window, so it holds its place when
+     the review panel takes the right-hand side. Quiet enough to ignore until
+     the moment somebody asks which build they are looking at. */
+  .version {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 14px; z-index: 12; margin: 0;
+    font-family: var(--mono); font-size: 11px;
+    color: var(--ink-faint); opacity: 0.75;
+    user-select: none; pointer-events: none;
+  }
   .key {
     font-family: inherit; font-size: 10px; line-height: 1;
     padding: 4px 6px 5px;

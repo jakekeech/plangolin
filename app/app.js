@@ -5052,8 +5052,25 @@
       esc(message) + '<br><br>Fix the file and reload. Nothing has been written.</div>';
   }
 
+  /* Not awaited by boot, and deliberately not part of any other request: the
+     build number is most worth reading on the runs where something else went
+     wrong, so it must not depend on the sheet loading. */
+  function showVersion() {
+    fetch("/api/version")
+      .then((r) => r.json())
+      .then(({ version }) => {
+        if (!version) return;
+        const el = document.getElementById("version");
+        if (!el) return;
+        el.textContent = "plangolin " + version;
+        el.hidden = false;
+      })
+      .catch(() => { /* an older server has no such route; show nothing */ });
+  }
+
   async function boot() {
     buildPalette();
+    showVersion();
     let payload;
     try {
       const res = await fetch("/api/doc");
