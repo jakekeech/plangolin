@@ -1937,6 +1937,29 @@
     '<kbd class="key">Shift</kbd><span class="key-join">+</span><kbd class="key">1</kbd>' +
     '<span class="hint-what">to focus</span>';
 
+  /* Sits under the panel while a review is open, wherever the panel has been
+     dragged to, and returns to the corner when there is no review. Measured
+     rather than assumed: the panel's height changes with the proposal, and
+     with the reason field when something is cut. */
+  function positionHint() {
+    const el = document.getElementById("hint");
+    const panel = document.getElementById("planpanel");
+    if (!el) return;
+    if (!plan || !planOpen()) {
+      el.style.left = ""; el.style.top = "";
+      el.style.right = ""; el.style.bottom = "";
+      return;
+    }
+    const c = canvas.getBoundingClientRect(), p = panel.getBoundingClientRect();
+    const below = p.bottom - c.top + 8;
+    // If the panel is low enough that under it leaves the canvas, go above it
+    // instead rather than off the bottom edge.
+    const fits = below + el.offsetHeight + 8 < c.height;
+    el.style.right = "auto"; el.style.bottom = "auto";
+    el.style.left = Math.round(p.left - c.left) + "px";
+    el.style.top = Math.round(fits ? below : p.top - c.top - el.offsetHeight - 8) + "px";
+  }
+
   function renderHint() {
     const el = document.getElementById("hint");
     if (!el) return;
@@ -2354,15 +2377,26 @@
 
   /* What this proposal is, in a sentence, before any of its detail. "calls
      into" on its own is a label for a line, not a description of a change. */
+  /* What is happening, in the words someone would use out loud.
+     "A new block", "a new line", "its description changes" are all about the
+     drawing rather than about the system — and the reader is deciding about
+     their software, not about a diagram. The heading already carries the name
+     and the arrow; this sentence carries the consequence. */
+  const cap = (x) => String(x || "").charAt(0).toUpperCase() + String(x || "").slice(1);
+
   function planSaysWhat(s) {
-    if (s.mark === "+") return "A new block — " + (s.why || "no description given");
-    /* The label is a caption for a line — "provides middleware", "reads /
-       writes" — not a verb that takes an object, so dropping it between the
-       two names produced "Express Core provides middleware Rate Limiter".
-       It goes after the pair instead, where a caption belongs. */
-    // The pair is already the heading; repeating it here says nothing twice.
-    if (s.mark === "→") return "A new line" + (s.why ? " — " + s.why : " between two blocks that exist");
-    return "Its description changes — " + (s.why || "no reason given");
+    if (s.mark === "+") {
+      return "This does not exist yet. " + (s.why || "The plan does not say what it would do.");
+    }
+    if (s.mark === "→") {
+      const [from, to] = s.name.split(" → ");
+      /* The label is third person — "tracks requests", "provides middleware" —
+         so a "to" clause produced "to tracks requests". It is a caption for
+         the line, so it goes after the sentence, not inside it. */
+      return from + " would start using " + to + "." + (s.why ? " " + cap(s.why) + "." : "");
+    }
+    return "This already exists, and what it does would change" +
+           (s.why ? ": " + s.why + "." : ".");
   }
 
   function renderPlan() {
@@ -2444,9 +2478,21 @@
       document.getElementById("plan-from").textContent =
         "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
       document.getElementById("plan-why").textContent = planSaysWhat(s);
-      document.getElementById("plan-detail").textContent = (s.files || []).join("\n");
-      document.getElementById("plan-reach").textContent = (s.reach || [])
-        .map((r) => "Used by " + r.name + " (" + r.label + ")").join("\n");
+      /* A bare list of paths does not say what it is a list of. Adding and
+         changing are different enough that the reader should not have to work
+         out which one they are looking at from the marker alone. */
+      const files = s.files || [];
+      const filesEl = document.getElementById("plan-detail");
+      filesEl.innerHTML = files.length
+        ? '<span class="plan-files-label">' +
+          (s.mark === "+" ? "Files it would add" : "Files it would change") + "</span>" +
+          files.map((f) => '<code>' + esc(f) + "</code>").join("")
+        : "";
+      const reach = s.reach || [];
+      document.getElementById("plan-reach").innerHTML = reach.length
+        ? '<span class="plan-files-label">Already used by</span>' +
+          reach.map((r) => esc(r.name) + ' <i>(' + esc(r.label) + ")</i>").join(", ")
+        : "";
       const said = saidFor(s.steps);
       document.getElementById("plan-quote").innerHTML = said
         ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
@@ -2462,6 +2508,7 @@
     litPlanNodes(s);
     renderAsk();
     renderHint();
+    positionHint();
   }
 
   /* Dim everything the current step is not about. Dimmed, never hidden: the
@@ -2614,6 +2661,7 @@
       if (!drag) return;
       panel.style.left = (ev.clientX - drag.c.left - drag.dx) + "px";
       panel.style.top = (ev.clientY - drag.c.top - drag.dy) + "px";
+      positionHint();
     });
     const land = () => {
       if (!drag) return;
@@ -2630,6 +2678,8 @@
       panel.style.left = d.x + "px";
       panel.style.top = d.y + "px";
       drag = null;
+      // After the glide, not during: the panel's final rect is what to sit under.
+      setTimeout(positionHint, 360);
     };
     grip.addEventListener("pointerup", land);
     grip.addEventListener("pointercancel", land);
@@ -2718,10 +2768,16 @@
     }
   }
 
-  document.getElementById("plan-skip").addEventListener("click", () => {
-    if (!plan) return;
-    sendAnswer({ id: plan.id, skipped: true });
-  });
+  /* Skip is gone from the panel.
+     It resolved the review as unanswered, so the agent proceeded with the plan
+     exactly as written — which is what approving with nothing cut already
+     does, except approving also sends the "do not touch" list. So the quick
+     button was the one that threw the product's output away, sitting at equal
+     weight beside the one that kept it.
+
+     The route still accepts `skipped`, because a caller that genuinely wants
+     to abandon a review should be able to, and the command still gives up on
+     its own after ten minutes. Nothing here is a dead end without it. */
 
   document.getElementById("plan-approve").addEventListener("click", () => {
     if (!plan) return;

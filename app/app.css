@@ -262,6 +262,10 @@
 
      pointer-events: none because it is a label, not a control. It also keeps
      it from swallowing drags that end in that corner of the sheet. */
+  /* Under the panel, not in the far corner. These are shortcuts for the
+     decision the panel is asking for, and a legend three hundred pixels away
+     from the thing it explains reads as page furniture rather than as help.
+     Rides with the panel when it is dragged — see positionHint. */
   .hint {
     position: absolute; right: 14px; bottom: 14px; z-index: 12;
     margin: 0; display: flex; align-items: center; gap: 5px;
@@ -1258,6 +1262,18 @@
     white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
   }
   .plan-detail:empty { display: none; }
+  .plan-files-label {
+    display: block; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 5px;
+  }
+  .plan-detail code {
+    display: inline-block; margin: 0 5px 4px 0; padding: 2px 6px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    background: color-mix(in oklab, var(--wash) 30%, var(--paper));
+    border-radius: 3px;
+  }
+  .plan-reach i { font-style: normal; color: var(--ink-faint); }
   .plan-reach {
     margin: 7px 0 0; white-space: pre-line;
     font-size: 12px; line-height: 1.45; color: var(--ink-soft);
