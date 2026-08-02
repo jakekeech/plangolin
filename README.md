@@ -7,11 +7,28 @@
 </p>
 
 <p align="center">
+  <em><strong>A Claude Code plugin that reviews a change before it is written.</strong>
+  Reads JavaScript, TypeScript, Python and Go directly, and falls back to a
+  language-agnostic reader for everything else.
+  <br />
+  Nothing to set up: no API key, no account, no build step.</em>
+</p>
+
+<p align="center">
   <a href="https://github.com/jakekeech/plangolin/actions/workflows/test.yml"><img src="https://github.com/jakekeech/plangolin/actions/workflows/test.yml/badge.svg" alt="tests" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1F6F6B" alt="MIT licence" /></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-1F6F6B" alt="Node 20 or newer" />
   <img src="https://img.shields.io/badge/runtime_dependencies-0-1F6F6B" alt="No runtime dependencies" />
   <a href="https://code.claude.com/docs/en/plugins-reference"><img src="https://img.shields.io/badge/Claude_Code-plugin-565857" alt="Claude Code plugin" /></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#why-a-graph">Why a graph</a> ·
+  <a href="#privacy-and-failure-behaviour">Privacy</a> ·
+  <a href="#what-it-does-not-do">What it does not do</a> ·
+  <a href="#development">Development</a>
 </p>
 
 ## Quick start
