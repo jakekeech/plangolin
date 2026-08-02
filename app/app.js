@@ -1924,9 +1924,29 @@
      Tied to whether this level has anything on it: an empty sheet offers
      nothing to focus, and a tip about a view control on a blank page is
      furniture. */
+  /* The hint says what is worth pressing where you are. While a review is
+     open that is the stepper, not the camera: every one of these is a shortcut
+     for a decision the panel is currently asking for, and a reader who has to
+     reach for the mouse six times will stop reading and start clicking. */
+  const REVIEW_KEYS =
+    '<span class="hint-what">Step</span><kbd class="key">←</kbd><kbd class="key">→</kbd>' +
+    '<span class="key-join">·</span><span class="hint-what">keep</span><kbd class="key">K</kbd>' +
+    '<span class="key-join">·</span><span class="hint-what">cut</span><kbd class="key">C</kbd>' +
+    '<span class="key-join">·</span><span class="hint-what">drag by the title bar</span>';
+  const FOCUS_KEYS =
+    '<kbd class="key">Shift</kbd><span class="key-join">+</span><kbd class="key">1</kbd>' +
+    '<span class="hint-what">to focus</span>';
+
   function renderHint() {
     const el = document.getElementById("hint");
-    if (el) el.hidden = !currentLevelNodes().length;
+    if (!el) return;
+    const reviewing = !!plan && planOpen() && plan.status === "ready";
+    el.hidden = !reviewing && !currentLevelNodes().length;
+    const want = reviewing ? REVIEW_KEYS : FOCUS_KEYS;
+    if (el.dataset.mode !== (reviewing ? "review" : "sheet")) {
+      el.dataset.mode = reviewing ? "review" : "sheet";
+      el.innerHTML = want;
+    }
   }
 
   // Which project this sheet is for. The server pins it to the directory
@@ -2418,6 +2438,7 @@
 
     litPlanNodes(s);
     renderAsk();
+    renderHint();
   }
 
   /* Dim everything the current step is not about. Dimmed, never hidden: the
