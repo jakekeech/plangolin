@@ -18,10 +18,11 @@ thread, so it is still there next time, and still true.
 
 ![plangolin](screenshot.png)
 
-*A plan to add rate limiting to Express, drawn against Express's own code. The
-two dashed blocks and the dashed line are what the plan would add; the solid
-ones already exist. Three of its eight steps change nothing structural, and it
-says so — those are the ones you can skim.*
+*A plan to add rate limiting to Express, drawn against Express's own code. One
+proposal at a time: here, the line the plan would draw between two blocks it
+would also add. What the step is about is lit; the rest of the system stays
+visible but out of the way. Keep it or cut it, and what you cut goes back to
+the agent as an instruction.*
 
 ---
 
@@ -63,7 +64,7 @@ hand.
 |---|---|
 | Stop it | `Ctrl-C`, or `pkill -f plangolin` |
 | Another port | `PORT=5000 plangolin` |
-| No browser | `plangolin --no-open` |
+| Open a browser too | `PLANGOLIN_OPEN=1 plangolin review …` |
 | Start over | delete the `plangolin/` folder it made |
 
 ---
@@ -77,20 +78,16 @@ secondhand textbooks between students"*.
 It stops at two or three. **It does not give you everything**, and that is the
 entire point — see below.
 
-**3. The rail on the right fills with what's missing.**
+**3. It writes a file.** `plangolin/system.json` — yours, in your repo, in git.
 
-> **RISK** — "Student Marketplace" talks straight to "Listing Database"
-> *That means the database password ships to every visitor's browser. Put
-> something you run in between.*
->
-> **MISSING** — You mention money, but nothing takes it → `Add payments`
->
-> **WORTH ADDING** — Search gets slow before you expect it to
+From there the sheet is a document you edit: drag blocks, draw lines, rename,
+group, undo.
 
-**4. You accept the ones you want.** Each button adds the block already wired up.
-Hover a check and a line runs from it to the block it's about, circled in pen.
-
-**5. It writes a file.** `plangolin/system.json` — yours, in your repo, in git.
+> **Two things are built and currently switched off**, because the product is
+> about reviewing plans and they were competing for the same attention: a rail
+> of design checks ("this talks straight to the database"), and a view of what
+> changed in git since you last looked, with the diff a click away. Both work
+> and are tested; `CHANGE_VIEW` at the top of `app/app.js` turns them back on.
 
 ---
 
@@ -365,7 +362,7 @@ app* should look like.
 ## Layout
 
 ```
-src/cli.js         starts the server, opens a browser
+src/cli.js         `plangolin` and `plangolin review <file>`
 src/server.js      serves the app; GET/PUT /api/doc, POST /api/generate
 src/workspace.js   the only file that touches the filesystem
 src/schema.js      load, validate, repair, save
