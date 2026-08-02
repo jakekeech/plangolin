@@ -86,6 +86,7 @@
     transition: grid-template-columns .18s cubic-bezier(.4, 0, .2, 1);
   }
   .shell[data-inspector="open"] { --rail-w: 270px; }
+  .shell[data-hunks="open"] { --rail-w: min(720px, 56vw); }
 
   /* Centre rather than baseline: a canvas has no baseline to align to, so a
      baseline row would hang the mark off its bottom edge. */
@@ -626,6 +627,63 @@
     color: var(--ink-faint); word-break: break-all;
   }
   .changed-files .more { color: var(--ink-faint); font-style: italic; }
+  .changed-file {
+    display: block; width: 100%; padding: 2px 0;
+    color: var(--pine); background: none; border: 0;
+    font: inherit; line-height: inherit; text-align: left; word-break: inherit;
+    text-decoration: underline; text-decoration-color: var(--pine-soft);
+    text-underline-offset: 2px; cursor: pointer;
+  }
+  .changed-file:hover { color: var(--ink); text-decoration-color: var(--ink-faint); }
+
+  /* ---------- changed-file drawer ---------- */
+
+  .hunk-drawer {
+    display: flex; flex-direction: column; min-width: min(718px, 56vw);
+    min-height: 0; overflow: hidden;
+  }
+  .hunk-head {
+    display: flex; align-items: flex-start; gap: 14px; flex: none;
+    padding: 15px 16px 12px; border-bottom: 1.5px solid var(--wash-2);
+  }
+  .hunk-head > div { min-width: 0; }
+  .hunk-kicker {
+    margin: 0 0 3px; color: var(--ink-faint); font-family: var(--mono);
+    font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  }
+  .hunk-head h2 {
+    margin: 0; font-family: var(--mono); font-size: 13px; font-weight: 700;
+    line-height: 1.35; overflow-wrap: anywhere;
+  }
+  .hunk-since { margin: 3px 0 0; color: var(--ink-faint); font-size: 11.5px; }
+  .hunk-close { flex: none; padding: 2px 4px; font-size: 19px; }
+  .hunk-body { min-height: 0; overflow: auto; padding: 12px 0 18px; }
+  .hunk-message { margin: 10px 16px; color: var(--ink-soft); }
+  .hunk-lines { min-width: max-content; font-family: var(--mono); font-size: 11.5px; line-height: 1.55; }
+  .hunk-line {
+    display: grid; grid-template-columns: 48px 48px minmax(max-content, 1fr);
+    min-height: 20px;
+  }
+  .hunk-line > span, .hunk-line > code { padding: 1px 8px; }
+  .hunk-line code { color: inherit; font: inherit; white-space: pre; }
+  .line-no {
+    color: var(--ink-faint); background: var(--paper-2); text-align: right;
+    user-select: none; font-variant-numeric: tabular-nums;
+    border-right: 1px solid var(--wash-2);
+  }
+  .hunk-range { margin: 8px 0 4px; color: var(--pine); background: var(--wash); }
+  .hunk-range:first-child { margin-top: 0; }
+  /* Red and green are already semantic claims here: --risk spends red on
+     severity, and --missing spends amber beside it. A green added line would
+     therefore read as "safe", so additions use pine/wash and removals use
+     ink/paper instead. */
+  .hunk-add { background: var(--wash); box-shadow: inset 3px 0 var(--pine); }
+  .hunk-del { background: var(--paper-2); box-shadow: inset 3px 0 var(--ink-soft); color: var(--ink-soft); }
+  .hunk-meta { color: var(--ink-faint); }
+  .hunk-truncated {
+    margin: 12px 16px 0; color: var(--ink-soft); font-size: 11.5px;
+    border-top: 1px solid var(--wash-2); padding-top: 10px;
+  }
 
   .link-btn {
     background: none; border: none; padding: 2px 0; font-size: 12.5px;
@@ -820,11 +878,13 @@
   @media (max-width: 900px) {
     .shell { grid-template-columns: 1fr; grid-template-rows: auto 45vh auto auto; height: auto; }
     .shell[data-inspector="open"] { --rail-w: auto; }
+    .shell[data-hunks="open"] { --rail-w: auto; }
     .checkpanel { left: 10px; right: 10px; width: auto; max-height: 46vh; }
     .picker { width: min(262px, calc(100vw - 40px)); }
     .part { width: auto; }
     .canvas { min-height: 45vh; }
     .rail-right { border-left: none; border-top: 2px solid var(--ink); }
+    .hunk-drawer { min-width: 0; max-height: 55vh; }
     #overlay { display: none; }
   }
 

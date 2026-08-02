@@ -21,6 +21,7 @@ const exec = promisify(execFile);
 // real, and the failure it prevents is a truncated list, which would read as
 // "those files didn't change" — the worst possible way to be wrong here.
 const MAX_BUFFER = 32 * 1024 * 1024;
+const HUMAN_PATCH_LIMIT = 64 * 1024;
 
 async function execGit(args) {
   const { stdout } = await exec("git", args, {
@@ -33,6 +34,23 @@ async function execGit(args) {
 /** Sorted and deduplicated, like every other list that feeds a delta. */
 function splitZ(out) {
   return [...new Set(out.split("\0"))].filter(Boolean).sort();
+}
+
+function firstUtf8Bytes(text, limit) {
+  const bytes = Buffer.from(text);
+  if (bytes.length <= limit) return { text, truncated: false };
+  // A byte budget must not turn a path or source character at the boundary
+  // into the replacement glyph, which would make the displayed patch lie.
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let end = limit;
+  while (end > limit - 4) {
+    try {
+      return { text: decoder.decode(bytes.subarray(0, end)), truncated: true };
+    } catch {
+      end--;
+    }
+  }
+  return { text: "", truncated: true };
 }
 
 export function makeGit(root, run = execGit) {
@@ -65,19 +83,28 @@ export function makeGit(root, run = execGit) {
      *  source files open with imports and a licence header, which is the same
      *  failure in a quieter form.
      *
-     *  -U1 because the surrounding lines are for a human reading a patch;
-     *  what a model needs is which lines moved. An untracked file has nothing
-     *  to diff against, so /dev/null stands in and the whole file reads as
-     *  added — which is true. */
-    async patch(from, file, limit = 1200) {
-      const args = ["diff", "--no-color", "-U1"];
+     *  The compact model excerpt keeps only one context line; the opt-in
+     *  human view needs three so a hunk is readable without opening an editor.
+     *  An untracked file has nothing to diff against, so /dev/null stands in
+     *  and the whole file reads as added — which is true. */
+    async patch(from, file, options = 1200) {
+      const human = options && typeof options === "object" && options.human === true;
+      const context = human ? "-U3" : "-U1";
+      const args = ["diff", "--no-color", context];
       if (from) args.push(from);
-      const out = await git([...args, "--", file])
-        .catch(() => git(["diff", "--no-color", "-U1", "--no-index", "/dev/null", file]).catch(() => ""));
+      if (human && options.to) args.push(options.to);
+      const addedFile = () => git(["diff", "--no-color", context, "--no-index", "/dev/null", file]).catch(() => "");
+      let out = await git([...args, "--", file]).catch(addedFile);
+      // git exits successfully with no output for an untracked file. Only the
+      // human view retries that silence: changing compact excerpts could make
+      // name-change read whole files where it previously read nothing.
+      if (human && !out) out = await addedFile();
       // Drop the ---/+++/index preamble: the caller already knows the path,
       // and four lines of it per file is a quarter of a small budget.
       const body = out.split("\n").filter((l) => !/^(diff |index |--- |\+\+\+ )/.test(l)).join("\n");
-      return body.slice(0, limit);
+      if (!human) return body.slice(0, options);
+      const limited = firstUtf8Bytes(body, HUMAN_PATCH_LIMIT);
+      return { patch: limited.text, truncated: limited.truncated };
     },
 
     /** Files git isn't tracking yet. `git diff` never lists these, and an

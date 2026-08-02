@@ -38,6 +38,60 @@ test("an empty diff is an empty list, not a list containing an empty string", as
   assert.deepEqual(await git.changedFiles("HEAD"), []);
 });
 
+test("patch keeps its compact string contract by default", async () => {
+  const body = "@@ -1 +1 @@\n-old\n+new\n" + "x".repeat(1400);
+  const run = fakeRun({ "-U1 HEAD -- src/a.js": body });
+  const git = makeGit("/proj", run);
+
+  const out = await git.patch("HEAD", "src/a.js");
+
+  assert.equal(typeof out, "string");
+  assert.equal(out.length, 1200);
+  assert.deepEqual(run.calls[0], [
+    "-C", "/proj", "diff", "--no-color", "-U1", "HEAD", "--", "src/a.js",
+  ]);
+});
+
+test("human patches use three context lines and can end at a second ref", async () => {
+  const body = "diff --git a/src/a.js b/src/a.js\nindex 111..222 100644\n" +
+    "--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1 @@\n-old\n+new\n";
+  const run = fakeRun({ "-U3 abc^ abc -- src/a.js": body });
+  const git = makeGit("/proj", run);
+
+  assert.deepEqual(await git.patch("abc^", "src/a.js", { human: true, to: "abc" }), {
+    patch: "@@ -1 +1 @@\n-old\n+new\n",
+    truncated: false,
+  });
+  assert.deepEqual(run.calls[0], [
+    "-C", "/proj", "diff", "--no-color", "-U3", "abc^", "abc", "--", "src/a.js",
+  ]);
+});
+
+test("human patches report when the 64 KiB response is capped", async () => {
+  const run = fakeRun({ "-U3 HEAD -- src/a.js": "x".repeat(64 * 1024 + 1) });
+  const git = makeGit("/proj", run);
+
+  const out = await git.patch("HEAD", "src/a.js", { human: true });
+
+  assert.equal(Buffer.byteLength(out.patch), 64 * 1024);
+  assert.equal(out.truncated, true);
+});
+
+test("human patches show an untracked file when the ordinary diff is empty", async () => {
+  const run = fakeRun({
+    "-U3 HEAD -- src/new.js": "",
+    "-U3 --no-index /dev/null src/new.js":
+      "--- /dev/null\n+++ b/src/new.js\n@@ -0,0 +1 @@\n+export const newFile = true;\n",
+  });
+  const git = makeGit("/proj", run);
+
+  assert.deepEqual(await git.patch("HEAD", "src/new.js", { human: true }), {
+    patch: "@@ -0,0 +1 @@\n+export const newFile = true;\n",
+    truncated: false,
+  });
+  assert.equal(run.calls.length, 2);
+});
+
 test("isRepo is false when git fails rather than throwing", async () => {
   const git = makeGit("/not-a-repo", fakeRun({}));
   assert.equal(await git.isRepo(), false);

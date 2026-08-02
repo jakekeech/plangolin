@@ -630,6 +630,10 @@
      — so this is set by a click that did not turn into a drag, never by the
      selection itself. */
   let inspectorOpen = false;
+  // The patch is transient evidence for the selected block. It lives beside
+  // the inspector rather than in the document, and a new selection invalidates
+  // which block the evidence came from.
+  let hunkView = null;
   const checksEl = document.getElementById("checks");
   const shell = document.getElementById("shell");
 
@@ -2657,13 +2661,88 @@
   /* What the sheet actually compared against, in words. Named once and used
      everywhere, because the panel and the block description must never
      disagree about which window they are describing. */
-  function sinceText() {
+  function sinceLabel() {
     const base = (syncResult && syncResult.baseline) || {};
     if (!base.ref) return "";
-    if (base.kind === "branch") return base.against ? " since " + esc(base.against) : " on this branch";
-    if (base.kind === "commit") return " in that commit";
-    if (base.fellBack) return " in work you haven't committed";
-    return " since " + esc(base.ref.slice(0, 8));
+    if (base.kind === "branch") return base.against ? "since " + base.against : "on this branch";
+    if (base.kind === "commit") return "in that commit";
+    if (base.fellBack) return "in work you haven't committed";
+    return "since " + base.ref.slice(0, 8);
+  }
+
+  function sinceText() {
+    const label = sinceLabel();
+    return label ? " " + esc(label) : "";
+  }
+
+  function hunkRows(patch) {
+    let oldLine = 0, newLine = 0;
+    return patch.replace(/\n$/, "").split("\n").map((line) => {
+      const header = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+      if (header) {
+        oldLine = Number(header[1]); newLine = Number(header[2]);
+        return '<div class="hunk-line hunk-range"><span></span><span></span><code>' + esc(line) + "</code></div>";
+      }
+
+      let kind = "context", oldNo = "", newNo = "";
+      if (line[0] === "+") { kind = "add"; newNo = newLine++; }
+      else if (line[0] === "-") { kind = "del"; oldNo = oldLine++; }
+      else if (line[0] === " ") { oldNo = oldLine++; newNo = newLine++; }
+      else kind = "meta";
+      return '<div class="hunk-line hunk-' + kind + '"><span class="line-no">' + oldNo +
+        '</span><span class="line-no">' + newNo + "</span><code>" + esc(line) + "</code></div>";
+    }).join("");
+  }
+
+  function renderHunkDrawer() {
+    const drawer = document.getElementById("hunk-drawer");
+    const body = document.getElementById("hunk-body");
+    document.getElementById("hunk-title").textContent = hunkView.path;
+    document.getElementById("hunk-since").textContent = sinceLabel();
+    if (hunkView.loading) {
+      body.innerHTML = '<p class="hunk-message">Reading the changed lines…</p>';
+    } else if (hunkView.error) {
+      body.innerHTML = '<p class="hunk-message">' + esc(hunkView.error) + "</p>";
+    } else if (!hunkView.patch) {
+      body.innerHTML = '<p class="hunk-message">' + esc(hunkView.reason || "There are no text hunks for this file.") + "</p>";
+    } else {
+      body.innerHTML = '<div class="hunk-lines">' + hunkRows(hunkView.patch) + "</div>" +
+        (hunkView.truncated ? '<p class="hunk-truncated">Showing the first 64 KiB of this patch.</p>' : "");
+    }
+    drawer.hidden = false;
+  }
+
+  function closeHunks() {
+    if (!hunkView) return;
+    hunkView = null;
+    renderInspector();
+  }
+
+  async function openHunks(file) {
+    const resolved = syncResult && syncResult.baseline;
+    hunkView = { path: file, loading: true };
+    const request = hunkView;
+    renderInspector();
+    requestAnimationFrame(() => document.getElementById("hunk-close").focus());
+
+    try {
+      const url = new URL("/api/hunks", location.origin);
+      url.searchParams.set("path", file);
+      if (resolved) {
+        url.searchParams.set("kind", resolved.kind || "");
+        url.searchParams.set("ref", resolved.ref || "");
+        if (resolved.rootCommit) url.searchParams.set("rootCommit", "true");
+      }
+      const res = await fetch(url);
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Couldn't read that patch.");
+      if (hunkView !== request) return;
+      hunkView = { path: file, ...payload };
+    } catch (err) {
+      if (hunkView !== request) return;
+      hunkView = { path: file, error: err.message || "Couldn't read that patch." };
+    }
+    renderInspector();
   }
 
   function changedFilesHtml(id) {
@@ -2674,7 +2753,8 @@
       '<label>' + files.length + (files.length === 1 ? " file" : " files") +
         " changed" + sinceText() + "</label>" +
       '<ul class="changed-files">' +
-        files.slice(0, SHOW_FILES).map((f) => "<li>" + esc(f) + "</li>").join("") +
+        files.slice(0, SHOW_FILES).map((f) => '<li><button type="button" class="changed-file" data-file="' +
+          esc(f) + '">' + esc(f) + "</button></li>").join("") +
         (rest > 0 ? '<li class="more">and ' + rest + " more</li>" : "") +
       "</ul></div>";
   }
@@ -2686,7 +2766,7 @@
     // all. Selecting a block is its own discovery trigger, so there is nothing
     // to rediscover — unlike the plan check, which nobody can go looking for.
     const rail = document.getElementById("rail-right");
-    if (!S.sel) inspectorOpen = false;
+    if (!S.sel) { inspectorOpen = false; hunkView = null; }
     const showPanel = !!S.sel && inspectorOpen;
     // inert, not hidden: display:none cannot be transitioned, and the panel has
     // to keep its box for the column to animate open. inert still takes it out
@@ -2694,7 +2774,13 @@
     rail.hidden = false;
     rail.inert = !showPanel;
     shell.dataset.inspector = showPanel ? "open" : "closed";
+    const showingHunks = showPanel && !!hunkView;
+    shell.dataset.hunks = showingHunks ? "open" : "closed";
+    document.getElementById("inspector-head").hidden = showingHunks;
+    inspectorEl.hidden = showingHunks;
+    document.getElementById("hunk-drawer").hidden = !showingHunks;
     if (!S.sel) return;
+    if (showingHunks) return renderHunkDrawer();
     inspectorEl.className = "inspector";
 
     if (S.sel.type === "node") {
@@ -2730,6 +2816,9 @@
         '<button class="link-btn danger" id="f-del">Remove this block</button>';
 
       const nid = n.id;
+      [].slice.call(inspectorEl.querySelectorAll(".changed-file")).forEach((button) => {
+        button.addEventListener("click", () => openHunks(button.dataset.file));
+      });
       document.getElementById("f-name").addEventListener("input", (ev) => {
         applyMove({ t: "setName", id: nid, name: ev.target.value }); softRender();
       });
@@ -3528,6 +3617,7 @@
 
   function select(type, id, opts) {
     S.sel = { type: type, id: id };
+    hunkView = null;
     if (!opts || opts.panel !== false) inspectorOpen = true;
     render();
   }
@@ -4520,6 +4610,7 @@
     S.sel = null;
     render();
   });
+  document.getElementById("hunk-close").addEventListener("click", closeHunks);
 
   /* ---------------------- the bulb, the panel, the post-it ---------------- */
 
@@ -4594,6 +4685,7 @@
     if (t === "INPUT" || t === "TEXTAREA" || ev.target.isContentEditable) return;
 
     if (pickerOpen()) return closePicker();
+    if (hunkView) return closeHunks();
     if (checksOpen()) return setChecksOpen(false);
     if (changesOpen()) return setChangesOpen(false);
 

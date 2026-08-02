@@ -20,6 +20,9 @@ export function nodeWorkspace(root) {
 
   return {
     root,
+    // Routes must use the same containment decision as file operations; a
+    // second path check at the HTTP boundary would eventually disagree.
+    abs,
 
     async read(p) {
       try {

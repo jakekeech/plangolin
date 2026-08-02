@@ -165,11 +165,23 @@
   <!-- Gone entirely when nothing is selected. Selecting a block is its own
        discovery trigger, so there is nothing to rediscover. -->
   <aside class="rail rail-right" id="rail-right" hidden>
-    <div class="rail-head">
+    <div class="rail-head" id="inspector-head">
       This block
       <button class="rail-close" id="inspector-close" aria-label="Close block details">×</button>
     </div>
     <div class="inspector" id="inspector"></div>
+    <section class="hunk-drawer" id="hunk-drawer" aria-labelledby="hunk-title" hidden>
+      <header class="hunk-head">
+        <div>
+          <p class="hunk-kicker">Changed file</p>
+          <h2 id="hunk-title"></h2>
+          <p class="hunk-since" id="hunk-since"></p>
+        </div>
+        <button class="rail-close hunk-close" id="hunk-close" type="button"
+                aria-label="Close changed file">×</button>
+      </header>
+      <div class="hunk-body" id="hunk-body" aria-live="polite"></div>
+    </section>
   </aside>
 </div>
 <svg id="overlay"></svg>

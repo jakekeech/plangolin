@@ -12,6 +12,7 @@ import { nameChanges } from "./name-change.js";
 import { buildFileGraph } from "./filegraph.js";
 import { adopt, survey } from "./adopt.js";
 import { createPlanStore } from "./plan-store.js";
+import { readHunks } from "./hunks.js";
 
 const APP_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "app");
 const TYPES = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json" };
@@ -146,6 +147,23 @@ export function createServer(ws, plans = createPlanStore()) {
           return json(res, 200, out);
         } catch (err) {
           return json(res, 500, { error: err.message });
+        }
+      }
+
+      // The browser sends the baseline sync actually resolved, not the menu
+      // choice that produced it, so a fallback or moving branch point cannot
+      // make the opened file disagree with the marks on the canvas.
+      if (url.pathname === "/api/hunks" && req.method === "GET") {
+        const file = url.searchParams.get("path") || "";
+        const baseline = {
+          kind: url.searchParams.get("kind") || "",
+          ref: url.searchParams.get("ref") || "",
+          ...(url.searchParams.get("rootCommit") === "true" ? { rootCommit: true } : {}),
+        };
+        try {
+          return json(res, 200, await readHunks(ws, file, baseline));
+        } catch (err) {
+          return json(res, err.escaped ? 400 : 500, { error: err.message });
         }
       }
 
