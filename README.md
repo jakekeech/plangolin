@@ -18,9 +18,10 @@ thread, so it is still there next time, and still true.
 
 ![plangolin](screenshot.png)
 
-*A barber-shop booking system, one sentence in. Hovering a check draws a line to
-the block it's about and circles it — here, the app talking straight to the
-database.*
+*A plan to add rate limiting to Express, drawn against Express's own code. The
+two dashed blocks and the dashed line are what the plan would add; the solid
+ones already exist. Three of its eight steps change nothing structural, and it
+says so — those are the ones you can skim.*
 
 ---
 
