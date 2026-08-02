@@ -1,10 +1,17 @@
 {
   "name": "plangolin",
   "description": "Review a plan as a system diagram before it becomes code",
-  "version": "0.1.0",
-  "author": { "name": "jakekeech" },
+  "version": "0.2.0",
+  "author": {
+    "name": "jakekeech"
+  },
   "homepage": "https://github.com/jakekeech/plangolin",
   "repository": "https://github.com/jakekeech/plangolin",
   "license": "MIT",
-  "keywords": ["planning", "architecture", "diagram", "review"]
+  "keywords": [
+    "planning",
+    "architecture",
+    "diagram",
+    "review"
+  ]
 }
