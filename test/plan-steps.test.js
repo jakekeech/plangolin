@@ -10,11 +10,35 @@ test("a numbered list becomes one step per item", () => {
   assert.equal(steps[2].text, "Test it");
 });
 
-test("a heading is its own step", () => {
+test("a heading opens the step that follows it, rather than standing alone", () => {
   const steps = splitSteps("## Rate limiting\n\nAdd a limiter.\n");
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].text, "Rate limiting — Add a limiter.");
+});
+
+test("a heading that carries the instruction survives", () => {
+  // "### Task 1: ..." is the ask and the line under it only elaborates, so
+  // dropping headings outright would lose the instruction.
+  const steps = splitSteps("### Task 1: Add the counter store\nBack it with Redis.\n");
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].text, "Task 1: Add the counter store — Back it with Redis.");
+});
+
+test("a heading with nothing under it is dropped, not counted", () => {
+  // Why this changed: a bare section label is a step that cannot change any
+  // block, so it could only ever be counted as idle — inflating the
+  // denominator of the one ratio this feature reports about a plan.
+  const steps = splitSteps("# Plan\n\n## Steps\n\n1. Add a limiter.\n");
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].text, "Steps — Add a limiter.");
+  assert.equal(stepCount("# Plan\n\n## Steps\n\n1. Add a limiter.\n"), 1);
+});
+
+test("only the first step after a heading carries it", () => {
+  const steps = splitSteps("## Work\n\n1. Add a limiter.\n2. Wire it up.\n");
   assert.equal(steps.length, 2);
-  assert.equal(steps[0].text, "Rate limiting");
-  assert.equal(steps[1].text, "Add a limiter.");
+  assert.equal(steps[0].text, "Work — Add a limiter.");
+  assert.equal(steps[1].text, "Wire it up.");
 });
 
 test("an indented continuation line stays with its item", () => {

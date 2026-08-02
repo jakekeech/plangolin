@@ -2495,11 +2495,26 @@
          evidence. The list panel this replaced could open them; losing that
          made the most important figure on screen the least verifiable. */
       const byStep = new Map((plan.steps || []).map((x) => [x.n, x.text]));
-      const sorted = idle.slice().sort((a, b) => a - b);
-      document.getElementById("plan-quote").innerHTML = sorted.length
-        ? "<details><summary>which steps those are</summary><ol>" +
-          sorted.map((n) => '<li value="' + n + '">' + esc(byStep.get(n) || "") + "</li>").join("") +
-          "</ol></details>"
+      /* Grouped by the model's own reason rather than flattened into one list.
+         The reason is already computed and was being thrown away, and it is
+         the difference between "these did not count" and "these did not count
+         because they are implementation detail". A reader who disagrees with
+         a grouping can only say so if they can see the reason given. */
+      const groups = (plan.delta.unplaced || [])
+        .map((u) => ({
+          why: (u.why || "").trim(),
+          steps: (u.steps || []).slice().sort((a, b) => a - b),
+        }))
+        .filter((g) => g.steps.length);
+      const items = (ns) =>
+        "<ol>" + ns.map((n) => '<li value="' + n + '">' + esc(byStep.get(n) || "") + "</li>").join("") + "</ol>";
+      document.getElementById("plan-quote").innerHTML = groups.length
+        ? "<details><summary>which steps those are</summary>" +
+          groups.map((g) =>
+            '<div class="plan-idle-group">' +
+            (g.why ? '<p class="plan-idle-why">' + esc(g.why) + "</p>" : "") +
+            items(g.steps) + "</div>").join("") +
+          "</details>"
         : "";
       foot.dataset.stage = "summary";
     } else {

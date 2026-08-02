@@ -36,11 +36,27 @@ function splitAll(markdown) {
   let current = null;
   let fence = null;
 
+  /* A heading opens the step that follows it rather than standing as one.
+     On its own it was guaranteed noise — "Context" is a one-word step that
+     cannot change any block, so every heading in a plan added a step that
+     could only ever be counted as idle. That inflated the step count and,
+     worse, inflated the denominator of the idle ratio, which is the one
+     number this feature reports about a plan.
+
+     Held rather than dropped, because a heading is sometimes the instruction
+     itself — "### Task 1: Add the rate limiter" carries the whole ask, and
+     the lines under it only elaborate. A heading with nothing after it is
+     discarded when the next one arrives, which is the section-label case. */
+  let pendingHead = null;
+
   const flush = () => {
     if (!current) return;
-    const text = current.join(" ").replace(/\s+/g, " ").trim();
-    if (text) steps.push(text.slice(0, MAX_STEP_CHARS));
+    const body = current.join(" ").replace(/\s+/g, " ").trim();
     current = null;
+    if (!body) return;
+    const text = pendingHead ? pendingHead + " — " + body : body;
+    pendingHead = null;
+    steps.push(text.slice(0, MAX_STEP_CHARS));
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -70,7 +86,7 @@ function splitAll(markdown) {
     }
 
     const heading = line.match(HEADING);
-    if (heading) { flush(); current = [heading[1]]; flush(); continue; }
+    if (heading) { flush(); pendingHead = heading[1].trim() || null; continue; }
 
     const item = line.match(ITEM);
     if (item) { flush(); current = [item[2]]; continue; }
