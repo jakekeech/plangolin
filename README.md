@@ -1,18 +1,20 @@
 # plangolin
 
-**A system diagram that doesn't go stale.**
+**Approve the shape, not the wall of text.**
 
-plangolin keeps a high-level picture of what you're building, in a file that sits
-beside the code rather than rotting in a Slack thread. You describe an app in one
-sentence and it draws the blocks it can't do without — deliberately stopping
-short of the rest — and from then on the sheet is yours to edit as the system
-changes.
+An AI's plan is six hundred words, and almost all of them are *how* — which file,
+which function, what order. Very little of it says what changes about the shape
+of your system, which is the part you actually need to agree to. So people skim
+it and press accept.
 
-It also reads the sheet back to you: what's missing, one thing at a time, with a
-reason you can act on.
+plangolin draws that part. Before any code is written, the plan arrives on a
+diagram: the blocks it would add, the lines between them, and a count of how many
+steps change nothing structural at all — the part you are entitled to skim.
+Cross out what you did not ask for, and what you removed goes back as an
+instruction rather than as silence.
 
-It's for people who can write code but have never designed a system, and for
-people who can design one but would rather the map maintained itself.
+The diagram is a file beside your code rather than something rotting in a Slack
+thread, so it is still there next time, and still true.
 
 ![plangolin](screenshot.png)
 
