@@ -1168,7 +1168,7 @@
     border-style: dashed;
     background: color-mix(in oklab, var(--paper) 92%, transparent);
     box-shadow: none;
-    cursor: default;
+    cursor: grab;
   }
   .node[data-proposed="true"] .node-name { opacity: .75; }
   .node[data-proposed="true"][data-cut="true"] { opacity: .28; }

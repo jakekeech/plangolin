@@ -610,6 +610,10 @@
      about where a ghost is, and two calls to ghostPositions() would be two
      answers the moment anything about it stopped being deterministic. */
   let ghostAt = new Map();
+  /* A dragged proposal belongs to this review, not the sheet. Keeping it
+     beside the review state lets ordinary redraws preserve the user's spatial
+     choice without putting a made-up node through the document save path. */
+  let movedGhosts = new Map();
 
   /* Must match proposalKey in src/plan-brief.js exactly — the literals are
      pinned by test/plan-brief.test.js, and this line is the other half of
@@ -1722,10 +1726,8 @@
     /* The blocks a plan would add, drawn where they would go. They never enter
        S.nodes and never go through applyMove: nothing in a review is saved,
        and the sheet on disk is untouched until somebody builds the thing for
-       real. No tabIndex, no port and no drag either — a ghost is not
-       selectable, connectable or movable, because every one of those would
-       need a story about editing something that does not exist. The panel is
-       where a proposal is edited. */
+       real. No tabIndex and no port keep a ghost out of selection and wiring;
+       dragging only changes the transient position held with this review. */
     ghostAt = new Map();
     if (!sheetLoaded || !plan || plan.status !== "ready") return;
     ghostAt = ghostPositions(plan.delta.additions);
@@ -1802,6 +1804,12 @@
     // two proposals never land on each other either.
     const taken = real.map((n) => ({ x: n.x || 0, y: n.y || 0, w: NODE_W, h: heights[n.id] || 80 }));
     additions.forEach((a, i) => {
+      const moved = movedGhosts.get(a.id);
+      if (moved) {
+        at.set(a.id, { x: moved.x, y: moved.y });
+        taken.push({ x: moved.x, y: moved.y, w: NODE_W, h: GHOST_H });
+        return;
+      }
       const link = (plan.delta.connections || []).find((c) => c.to === a.id || c.from === a.id);
       const other = link && real.find((n) => n.id === (link.to === a.id ? link.from : link.to));
       const x0 = other ? (other.x || 0) + GHOST_DX : 120 + i * GHOST_DX;
@@ -2181,6 +2189,7 @@
 
   function setPlanOpen(open) {
     const panel = document.getElementById("planpanel");
+    const opening = open && !planOpen();
     // Focus leaves before the panel is hidden. Approve and Skip both close the
     // panel they are inside, and marking the ancestor of the focused button
     // aria-hidden leaves it addressable to a screen reader and to nothing else.
@@ -2190,6 +2199,9 @@
     // The state door says what the sheet is showing, and while a review is
     // live and shut it is the way back into it. See renderChangeBar.
     renderChangeBar();
+    // A review opens itself after the sheet's first layout pass. Refit on that
+    // transition or the initial camera still reflects the unobscured canvas.
+    if (opening && sheetLoaded) centreOnLevel();
   }
 
   /* The parts of the drawing a review can change, and only those. Not
@@ -2342,7 +2354,7 @@
       });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out || out.ok === false) throw new Error("refused");
-      plan = null; setPlanOpen(false); drawPlan();
+      plan = null; movedGhosts.clear(); setPlanOpen(false); drawPlan();
     } catch {
       // Only if this is still the review that was being answered — a poll may
       // have moved on while the request was out.
@@ -2387,6 +2399,9 @@
       const stamp = review ? review.id + ":" + review.status : "";
       if (stamp === planSeen) return;
       planSeen = stamp;
+      // Proposal ids can recur in a later review; carrying a coordinate across
+      // that boundary would make a new proposal inherit an old decision.
+      movedGhosts.clear();
       // A review that has been answered is over: it stays on the server so the
       // command waiting on it can read the brief, but there is nothing left to
       // show and reopening the panel over a decision already sent would be a
@@ -3314,6 +3329,30 @@
      getOffsets). 10px gutter + 58px bar + 16px breathing room. */
   const TOOLBAR_INSET = 84;
 
+  /* Floating panels do not reserve layout space, so clientWidth alone cannot
+     describe the part of the canvas a person can see. Measure only visible,
+     right-anchored furniture; the change panel currently opens on the left,
+     and the inspector rail already shrinks the canvas grid column, so both
+     correctly contribute zero unless their layout changes to overlap it. */
+  function rightOcclusion() {
+    // At this breakpoint the flyouts become bottom sheets. Treating their full
+    // width as a right inset would leave no horizontal room at all.
+    if (window.matchMedia("(max-width: 900px)").matches) return 0;
+    const cr = canvas.getBoundingClientRect();
+    let covered = 0;
+    ["planpanel", "checkpanel", "changepanel", "rail-right"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || el.hidden) return;
+      const css = getComputedStyle(el);
+      if (css.display === "none" || css.visibility === "hidden") return;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || r.left >= cr.right || r.right <= cr.left) return;
+      const rightAnchored = css.right !== "auto" || r.left >= cr.left + cr.width / 2;
+      if (rightAnchored) covered = Math.max(covered, cr.right - r.left);
+    });
+    return Math.max(0, covered);
+  }
+
   /* Pan the sheet so the block a check is about is actually visible, allowing
      for the panel sitting over the left of the canvas. Hovering nudges; clicking
      centres. Without this the panel would routinely cover the very block it is
@@ -3411,15 +3450,14 @@
      paper over, because panning to the computed centre of nothing is exactly
      how you land in an empty view with no cue which way anything is.
 
-     TOOLBAR_INSET keeps the leftmost block clear of the add button, so the
-     content is centred in the room to the right of it rather than in the
-     canvas, and the two margins come out uneven on purpose. */
+     TOOLBAR_INSET keeps the leftmost block clear of the add button, while a
+     visible right flyout keeps the rightmost block out from underneath it. */
   function centredPan(atZoom) {
     const b = levelBounds();
     if (!b) return null;
     const z = atZoom || zoom;
     const w = (b.x1 - b.x0) * z, h = (b.y1 - b.y0) * z;
-    const room = canvas.clientWidth - TOOLBAR_INSET;
+    const room = canvas.clientWidth - TOOLBAR_INSET - rightOcclusion();
     return {
       x: Math.round(TOOLBAR_INSET + Math.max(0, (room - w) / 2) - b.x0 * z),
       y: Math.round(Math.max(24, (canvas.clientHeight - h) / 2) - b.y0 * z),
@@ -3436,7 +3474,7 @@
     if (!b) return null;
     const w = b.x1 - b.x0, h = b.y1 - b.y0;
     if (w <= 0 || h <= 0) return null;
-    const room = canvas.clientWidth - TOOLBAR_INSET - FIT_PAD;
+    const room = canvas.clientWidth - TOOLBAR_INSET - rightOcclusion() - FIT_PAD;
     const tall = canvas.clientHeight - FIT_PAD;
     return Math.max(ZOOM_MIN, Math.min(FIT_MAX, Math.min(room / w, tall / h)));
   }
@@ -3781,7 +3819,7 @@
 
   /* ============================ pointer ============================ */
 
-  let mode = null; // 'node' | 'note' | 'pan' | 'wire'
+  let mode = null; // 'node' | 'ghost' | 'note' | 'pan' | 'wire'
   let start = null;
 
   // The browser's native dblclick doesn't fire reliably here: select() and
@@ -3847,6 +3885,16 @@
       }
     }
 
+    if (nodeEl && nodeEl.dataset.proposed === "true") {
+      const p = ghostAt.get(nodeEl.dataset.id);
+      if (!p) return;
+      ev.preventDefault();
+      mode = "ghost";
+      start = { id: nodeEl.dataset.id, dx: wx - p.x, dy: wy - p.y };
+      nodeEl.classList.add("dragging");
+      return;
+    }
+
     if (nodeEl) {
       const n = node(nodeEl.dataset.id);
       const now = Date.now();
@@ -3893,6 +3941,13 @@
       const el = world.querySelector('.node[data-id="' + n.id + '"]');
       if (el) { el.style.left = n.x + "px"; el.style.top = n.y + "px"; }
       renderWires();
+    } else if (mode === "ghost") {
+      const p = { x: wx - start.dx, y: wy - start.dy };
+      movedGhosts.set(start.id, p);
+      ghostAt.set(start.id, p);
+      const el = world.querySelector('.node[data-proposed="true"][data-id="' + start.id + '"]');
+      if (el) { el.style.left = p.x + "px"; el.style.top = p.y + "px"; }
+      renderWires();
     } else if (mode === "note") {
       const n = (S.notes || []).find((x) => x.id === start.id);
       if (!n) return;
@@ -3926,6 +3981,10 @@
       if (el) el.classList.remove("dragging");
       if (start && !start.moved) { inspectorOpen = true; render(); }
       else renderChecks();
+    }
+    if (mode === "ghost") {
+      const el = world.querySelector('.node[data-proposed="true"].dragging');
+      if (el) el.classList.remove("dragging");
     }
     if (mode === "note") {
       const el = world.querySelector(".sticky.dragging");
