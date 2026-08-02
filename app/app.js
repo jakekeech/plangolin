@@ -609,6 +609,17 @@
      renderWires, which runs after it — the blocks and the lines have to agree
      about where a ghost is, and two calls to ghostPositions() would be two
      answers the moment anything about it stopped being deterministic. */
+  /* The change view — the baseline picker, the checks bulb, and everything
+     reachable from either — predates the plan review and now competes with it
+     for attention. Someone deciding whether to accept a plan is not asking
+     what git did last week.
+
+     Turned off rather than deleted. It works, it is tested, and shelving it
+     should stay cheap to reverse: flip this to true and it comes back whole,
+     with its tests still passing in the meantime. Deleting it would have taken
+     those tests with it and made the decision expensive to undo. */
+  const CHANGE_VIEW = false;
+
   let ghostAt = new Map();
   /* A dragged proposal belongs to this review, not the sheet. Keeping it
      beside the review state lets ordinary redraws preserve the user's spatial
@@ -2109,6 +2120,7 @@
   const INLINE_MAX = 2;
 
   function renderChangeBar() {
+    if (!CHANGE_VIEW) return;
     const door = document.getElementById("change-door");
     const inline = document.getElementById("change-inline");
     const groupsEl = document.getElementById("changebar-groups");
@@ -2915,6 +2927,7 @@
   }
 
   function renderChecks() {
+    if (!CHANGE_VIEW) return;
     const list = planCheck();
     // Collapsed, the strip still carries the top check in full — tag, title and
     // its action. The list is the teaching surface; a bare count would put it
@@ -3434,13 +3447,21 @@
      the same 80px fallback used everywhere else before it has. */
   function levelBounds() {
     const ns = currentLevelNodes().filter((n) => Number.isFinite(n.x) && Number.isFinite(n.y));
-    if (!ns.length) return null;
+    /* Proposed blocks count as content. They are drawn on their own path and
+       are deliberately absent from currentLevelNodes, so a fit computed from
+       real blocks alone lands with the proposals off the edge — and since a
+       proposal is placed beside whatever it connects to, "off the edge" is
+       reliably underneath the panel that is asking about it. Fitting to the
+       system while hiding the question about it is the wrong answer. */
+    const boxes = ns.map((n) => ({ x: n.x, y: n.y, h: heights[n.id] || 80 }));
+    ghostAt.forEach((p) => boxes.push({ x: p.x, y: p.y, h: GHOST_H }));
+    if (!boxes.length) return null;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    ns.forEach((n) => {
-      x0 = Math.min(x0, n.x);
-      y0 = Math.min(y0, n.y);
-      x1 = Math.max(x1, n.x + NODE_W);
-      y1 = Math.max(y1, n.y + (heights[n.id] || 80));
+    boxes.forEach((b) => {
+      x0 = Math.min(x0, b.x);
+      y0 = Math.min(y0, b.y);
+      x1 = Math.max(x1, b.x + NODE_W);
+      y1 = Math.max(y1, b.y + b.h);
     });
     return { x0: x0, y0: y0, x1: x1, y1: y1 };
   }
@@ -4045,6 +4066,8 @@
      is the one thing that has to simply be there. An empty sheet has nothing
      to compare, so it waits. */
   function maybeSync() {
+    // With no way to see the answer, syncing is a git read nobody asked for.
+    if (!CHANGE_VIEW) return;
     if (!ready || syncBusy || !S.nodes.length) return;
     if (Date.now() - lastSyncAt < SYNC_GAP_MS) return;
     runSync(true);
@@ -4674,6 +4697,10 @@
   /* ---------------------- the bulb, the panel, the post-it ---------------- */
 
   const bulbBtn = document.getElementById("bulb");
+  // The state door is already hidden in the markup and only ever revealed by
+  // renderChangeBar, which now returns early. The bulb is shown by default,
+  // so it is taken out here.
+  if (!CHANGE_VIEW) bulbBtn.hidden = true;
   const panelEl = document.getElementById("checkpanel");
 
   const checksOpen = () => shell.dataset.checks === "open";
@@ -4682,6 +4709,7 @@
      same stretch of canvas, is a mess — and the two answer different
      questions, so wanting both at once is not a real want. */
   function setChangesOpen(open) {
+    if (!CHANGE_VIEW) return;
     // Guarded on being open: these two close each other, and unguarded that
     // is a loop rather than a rule.
     if (open) { closePicker(); if (checksOpen()) setChecksOpen(false); loadBaselines(); }
@@ -4695,6 +4723,7 @@
   const changesOpen = () => shell.dataset.changes === "open";
 
   function setChecksOpen(open) {
+    if (!CHANGE_VIEW) return;
     if (open) { closePicker(); if (changesOpen()) setChangesOpen(false); }
     shell.dataset.checks = open ? "open" : "closed";
     panelEl.setAttribute("aria-hidden", String(!open));
