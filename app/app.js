@@ -1942,7 +1942,7 @@
      rather than assumed: the panel's height changes with the proposal, and
      with the reason field when something is cut. */
   function positionHint() {
-    const el = document.getElementById("hint");
+    const el = document.getElementById("plan-keys");
     const panel = document.getElementById("planpanel");
     if (!el) return;
     if (!plan || !planOpen()) {
@@ -1960,15 +1960,25 @@
     el.style.top = Math.round(fits ? below : p.top - c.top - el.offsetHeight - 8) + "px";
   }
 
+  /* Two hints, because there are two questions.
+     The corner one is about the camera and is true whether or not a review is
+     open, so it stays where it has always been. The stepper's keys belong to
+     the panel and travel with it. Putting both in one line meant the camera
+     hint vanished the moment a review started, which is exactly when someone
+     reaching for Shift+1 needs it. */
   function renderHint() {
     const el = document.getElementById("hint");
-    if (!el) return;
-    const reviewing = !!plan && planOpen() && plan.status === "ready";
-    el.hidden = !reviewing && !currentLevelNodes().length;
-    const want = reviewing ? REVIEW_KEYS : FOCUS_KEYS;
-    if (el.dataset.mode !== (reviewing ? "review" : "sheet")) {
-      el.dataset.mode = reviewing ? "review" : "sheet";
-      el.innerHTML = want;
+    if (el) {
+      el.hidden = !currentLevelNodes().length;
+      if (el.dataset.mode !== "sheet") { el.dataset.mode = "sheet"; el.innerHTML = FOCUS_KEYS; }
+    }
+    const keys = document.getElementById("plan-keys");
+    if (keys) {
+      const reviewing = !!plan && planOpen() && plan.status === "ready";
+      keys.hidden = !reviewing;
+      if (reviewing && keys.dataset.filled !== "1") {
+        keys.dataset.filled = "1"; keys.innerHTML = REVIEW_KEYS;
+      }
     }
   }
 
@@ -3921,7 +3931,20 @@
     if (w <= 0 || h <= 0) return null;
     const room = canvas.clientWidth - TOOLBAR_INSET - rightOcclusion() - FIT_PAD;
     const tall = canvas.clientHeight - FIT_PAD;
-    return Math.max(ZOOM_MIN, Math.min(FIT_MAX, Math.min(room / w, tall / h)));
+    const whole = Math.min(room / w, tall / h);
+
+    /* Below a point, fitting everything is worse than fitting most of it.
+       On a 1000px-wide window the review panel, the toolbar and the padding
+       take 544 of it, so a sheet a thousand points across was being drawn at
+       37% — every block on screen and not one of them readable. The reader is
+       being asked to judge a proposal, and a drawing they have to squint at is
+       not evidence.
+
+       So the fit stops at a legible scale and lets the rest be panned to. The
+       drawing loses completeness, which the reader can fix with a drag; below
+       this it loses legibility, which they cannot fix at all. */
+    const LEGIBLE = 0.62;
+    return Math.max(ZOOM_MIN, Math.min(FIT_MAX, Math.max(whole, Math.min(LEGIBLE, FIT_MAX))));
   }
 
   /* Fit is the honest answer to "show me the system": everything at once, as
