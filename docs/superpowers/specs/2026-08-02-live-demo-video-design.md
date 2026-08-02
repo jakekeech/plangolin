@@ -91,6 +91,10 @@ The central transition is a semantic morph: lines of plan text contract into the
 
 Subsequent transitions should preserve spatial continuity: zoom from the full map into the contested proposal, follow the Cut action into the summary, and transform the summary into the returned Markdown brief. Avoid jump cuts between unrelated full-screen layouts.
 
+Camera movement should direct attention throughout the demo. Begin with a slow push into the frozen Claude plan, accelerate through the terminal-to-diagram morph, settle on the full map, then use short eased zoom-ins for the existing Redis block, the unwanted proposal, the **Cut** action, the approval summary, and the returned `OUT OF SCOPE` instruction. Each zoom must land on a readable hero frame and hold before moving again. Avoid continuous drifting, fake handheld movement, or zooms that make UI text hard to read.
+
+Cursor choreography is part of the explanation. The cursor should travel along short, deliberate paths, pause briefly before each important interaction, and click only after the audience can see the target. Click ripples or small scale accents may reinforce **Cut**, **Keep**, and **Approve**, but should preserve the real interface rather than covering it.
+
 ## Visual Identity
 
 The video inherits the product's current visual identity from the real interface: warm off-white canvas, black typography, muted teal accents, dotted drafting grid, solid existing blocks, and dashed proposals. Typography, spacing, and the Plangolin mark should be taken from the app rather than recreated with generic defaults.
@@ -112,6 +116,16 @@ If the real run proposes no redundant persistent store, use another genuine arch
 
 Narration should be calm and dry, matching the skit's understated joke. Use a subtle pulse or restrained percussive bed only after the terminal-to-diagram morph. Product clicks may be lightly emphasized. Avoid trailer-style impacts, comedy stings, or continuous energetic music that competes with the interface.
 
+Typing and interface sounds should provide rhythm:
+
+- Carry authentic keyboard sounds out of the live skit and into the opening terminal frame.
+- Use a brief burst of accelerated typing as the plan text compresses into the diagram.
+- Accent **Cut**, **Keep**, and **Approve** with distinct, restrained UI clicks.
+- Add a soft paper, marker, or drafting sound as dashed proposals and connecting lines appear.
+- Use a low, subtle confirmation tone when the returned review brief reveals `OUT OF SCOPE`.
+
+Typing sounds must correspond to visible text or cursor activity. Do not run decorative keyboard audio underneath unrelated animation. Music and effects should duck beneath narration, and the final end-card hold should resolve to silence.
+
 ## Acceptance Criteria
 
 - The video begins seamlessly from the live skit's final terminal frame.
@@ -121,5 +135,7 @@ Narration should be calm and dry, matching the skit's understated joke. Use a su
 - The audience can explain the product loop after one viewing.
 - The unwanted architectural proposal is visually obvious before it is cut.
 - The returned `OUT OF SCOPE` instruction is held long enough to read.
+- Typing, cursor movement, click accents, and camera zooms are synchronized with visible actions.
+- Every zoom lands cleanly, holds long enough for comprehension, and keeps UI text readable.
 - The end card includes `/reload-plugins`, which the current README says is required.
 - No performance or usage statistic is shown without measurement and context.
