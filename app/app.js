@@ -2299,7 +2299,28 @@
     renderChangeBar();
     // A review opens itself after the sheet's first layout pass. Refit on that
     // transition or the initial camera still reflects the unobscured canvas.
-    if (opening && sheetLoaded) centreOnLevel();
+    if (opening && sheetLoaded) fitAfterSettling();
+  }
+
+  /* Fit once everything the fit depends on has stopped moving.
+     centreOnLevel waits a single frame, which is enough for measured block
+     heights and not enough for the panel: it opens empty, then fills, then
+     grows, and its width is subtracted from the room the drawing gets. Fitting
+     against the half-built panel produced a sheet at two-thirds the scale it
+     should have been, with no way to tell — Shift+1 silently corrected it.
+
+     Two frames, then a beat, then fit. The beat is for the panel's own
+     transition; measuring mid-animation is measuring a number that is about to
+     be wrong. */
+  let fitPending = null;
+  function fitAfterSettling() {
+    clearTimeout(fitPending);
+    fitPending = setTimeout(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        measure();
+        fitLevel(false);
+      }));
+    }, 120);
   }
 
   /* The parts of the drawing a review can change, and only those. Not
@@ -2805,6 +2826,7 @@
     try {
       const { review } = await fetch("/api/plan").then((r) => r.json());
       const stamp = review ? review.id + ":" + review.status : "";
+      const wasThinking = !!plan && plan.status === "thinking";
       if (stamp === planSeen) return;
       planSeen = stamp;
       // Proposal ids can recur in a later review; carrying a coordinate across
@@ -2819,6 +2841,10 @@
       // deliberate act; requiring a click per block to approve a plan you
       // agree with would make the common case the expensive one.
       if (plan && plan.status === "ready") { planCut = new Set(); planAt = 0; }
+      /* thinking -> ready is when the panel gains its content and the sheet
+         gains its ghosts. Both change what a fit should produce, so this is
+         the moment to compute one. */
+      if (plan && plan.status === "ready" && wasThinking) fitAfterSettling();
       if (plan) setPlanOpen(true);
       renderPlan();
       drawPlan();
@@ -4556,7 +4582,16 @@
     setTimeout(() => { btn.textContent = original; }, 2000);
   });
 
-  window.addEventListener("resize", () => { drawOverlay(); });
+  /* Resizing changes how much room the drawing has, and while a review is open
+     it changes it a lot — the panel is a fixed width, so a narrower window
+     gives the sheet proportionally less. Refit rather than leave the reader
+     with a view computed for a window they no longer have. Only during a
+     review: outside one the camera is theirs and moving it would be rude. */
+  window.addEventListener("resize", () => {
+    drawOverlay();
+    positionHint();
+    if (plan && planOpen()) fitAfterSettling();
+  });
   checksEl.addEventListener("scroll", () => { drawOverlay(); });
 
   /* A sheet arriving all at once is laid out against the origin, not against
@@ -5018,6 +5053,12 @@
       return;
     }
     sheetLoaded = true;
+    /* The review and the sheet arrive in whichever order the network gives
+       them, and the fit needs both. Coming from the other side: pollPlan
+       returns early once it has seen a review, so a fit it skipped because the
+       sheet had not loaded would never get a second chance — on a reload of an
+       already-open review that left the sheet at the fallback scale. */
+    if (plan && planOpen()) fitAfterSettling();
 
     // Before the branch below: an empty sheet still wants naming, and the
     // scan it kicks off is the longest wait in the product.
