@@ -1,29 +1,16 @@
 <p align="center">
-  <img src="banner.png" alt="plangolin — see your agent's next move.">
+  <img src="banner.png" alt="plangolin — see your agent's next move." width="800">
 </p>
 
-plangolin turns an AI agent's wall-of-text plan into a visual preview of what
-it would change.
+<p align="center">
+  Turn an AI agent's wall-of-text plan into a visual preview of what it would change.
+</p>
 
 ![A plangolin plan review showing proposed blocks and connections](screenshot.png)
 
-*A plan to add rate limiting to Express, drawn against Express's own code. The
-current proposal is lit while the rest of the system stays visible for context.*
-
-## How it works
-
-1. **Ask for a change.** Claude reads the project and writes its plan without
-   changing any files.
-2. **See the plan on your system.** plangolin draws proposed blocks and
-   connections as ghosts over a graph of what already exists.
-3. **Keep or cut each proposal.** Step through the architectural changes and
-   cross out anything you did not ask for.
-4. **Send the decision back.** Claude continues with what survived, plus an
-   explicit `OUT OF SCOPE` list so every rejection remains an instruction.
-
-Implementation details stay visible without competing for the same attention.
-At the end, plangolin counts the plan steps that change nothing about the shape
-of the system—the part of a long plan you are entitled to skim.
+<p align="center">
+  <em>A plan to add rate limiting to Express, drawn against Express's own code.</em>
+</p>
 
 ## Quick start
 
@@ -48,6 +35,21 @@ Open http://localhost:4300 to review the plan.
 
 Open the link, review the proposals, and press **Approve**. That is the whole
 setup: no separate npm install, API key, account, or build step.
+
+## How it works
+
+1. **Ask for a change.** Claude reads the project and writes its plan without
+   changing any files.
+2. **See the plan on your system.** plangolin draws proposed blocks and
+   connections as ghosts over a graph of what already exists.
+3. **Keep or cut each proposal.** Step through the architectural changes and
+   cross out anything you did not ask for.
+4. **Send the decision back.** Claude continues with what survived, plus an
+   explicit `OUT OF SCOPE` list so every rejection remains an instruction.
+
+Implementation details stay visible without competing for the same attention.
+At the end, plangolin counts the plan steps that change nothing about the shape
+of the system—the part of a long plan you are entitled to skim.
 
 ## What you are reviewing
 
