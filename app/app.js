@@ -1251,6 +1251,12 @@
     const k = w / MARK_BOX.w;
     ctx.save();
     ctx.scale(k, k);
+    /* Mirrored so the animal faces the wordmark. The geometry is drawn snout
+       left, tail sweeping right, which put its back to the name it sits
+       beside. Flipped here rather than in PG because the same points paint the
+       favicon, which stands alone and has nothing to face. */
+    ctx.translate(MARK_BOX.w, 0);
+    ctx.scale(-1, 1);
     ctx.translate(-MARK_BOX.x, -MARK_BOX.y);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
