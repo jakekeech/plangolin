@@ -8,11 +8,10 @@
 
 <p align="center">
   <em><strong>Plan review for AI coding agents.</strong>
-  Reads JavaScript, TypeScript, Python and Go with dedicated import readers, and
-  finds references by filename in every other language — so a Rust or Ruby
-  project still gets a graph.
+  Reads JavaScript, TypeScript, Python and Go.
   <br />
-  Ships as a Claude Code plugin. No API key, no account, no build step.</em>
+  Ships as a Claude Code plugin; Codex support is in the works.
+  No API key, no account, no build step.</em>
 </p>
 
 <p align="center">
