@@ -2855,6 +2855,13 @@
          gains its ghosts. Both change what a fit should produce, so this is
          the moment to compute one. */
       if (plan && plan.status === "ready" && wasThinking) fitAfterSettling();
+      /* An empty folder puts "No code here yet" over the canvas, which is the
+         right thing to say to someone who opened plangolin on the wrong
+         directory and the wrong thing to say to someone reviewing a plan for a
+         project that does not exist yet. The ghosts render underneath it either
+         way, so without this the greenfield case looks like a dead end while
+         the whole answer sits one layer down. */
+      if (plan) clearIdle();
       if (plan) setPlanOpen(true);
       renderPlan();
       drawPlan();
@@ -5118,7 +5125,14 @@
 
       const hasCode = !!(dirs.dirs && dirs.dirs.length);
       if (!hasCode) {
-        idleStart("No code here yet", "plangolin reads a project you already have. Run it from a folder with source in it.");
+        /* Not when a review is already in flight — pollPlan clears this a beat
+           later anyway, and painting it first reads as an error the plan then
+           has to argue with. `plan` is set by the pollPlan() that
+           startPlanPolling() fired above, which resolves during the two
+           fetches this branch just awaited. */
+        if (!plan) {
+          idleStart("No code here yet", "plangolin reads a project you already have. Run it from a folder with source in it.");
+        }
       } else if (!caps.canScan) {
         // Only reachable if the service itself is unreachable; the scan needs
         // no key of yours.
