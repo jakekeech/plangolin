@@ -1,6 +1,6 @@
-# plangolin
-
-**See your agent's next move.**
+<p align="center">
+  <img src="banner.png" alt="plangolin — see your agent's next move.">
+</p>
 
 plangolin turns an AI agent's wall-of-text plan into a visual preview of what
 it would change.
