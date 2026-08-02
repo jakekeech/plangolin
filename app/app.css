@@ -282,6 +282,12 @@
     color: var(--ink-faint); opacity: 0.75;
     user-select: none; pointer-events: none;
   }
+  /* Legible rather than loud: an update is worth noticing on the way past, not
+     worth competing with the plan the reader came to look at. Pointer events
+     come back so the title attribute can say how to actually do it. */
+  .version.stale {
+    color: var(--pine); opacity: 1; pointer-events: auto; cursor: help;
+  }
   .key {
     font-family: inherit; font-size: 10px; line-height: 1;
     padding: 4px 6px 5px;

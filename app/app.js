@@ -5064,8 +5064,46 @@
         if (!el) return;
         el.textContent = "plangolin " + version;
         el.hidden = false;
+        offerUpdate(el, version);
       })
       .catch(() => { /* an older server has no such route; show nothing */ });
+  }
+
+  /* Three digits at a time, so 0.10.0 is newer than 0.9.0 rather than earlier.
+     Anything that is not three plain numbers is treated as "no answer" — a
+     comparison it cannot make must not produce a nudge. */
+  function newer(a, b) {
+    const parts = (s) => /^\d+\.\d+\.\d+$/.test(s) ? s.split(".").map(Number) : null;
+    const x = parts(a), y = parts(b);
+    if (!x || !y) return false;
+    for (let i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] > y[i]; }
+    return false;
+  }
+
+  /* Asks GitHub what the current release is. In the browser rather than the
+     CLI because a review must never wait on the network to say something
+     optional, and here the worst case is a footer that stays as it was.
+
+     It exists because the update path fails silently in four separate ways —
+     an unbumped version, a stale plugin cache, `/plugin update` in-session
+     doing nothing, and auto-update being off by default for everything that
+     is not Anthropic's own marketplace. None of them produce an error, so the
+     only reliable signal is the one the user is already looking at. */
+  const RELEASE_URL =
+    "https://raw.githubusercontent.com/jakekeech/plangolin/main/package.json";
+
+  function offerUpdate(el, running) {
+    fetch(RELEASE_URL, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((pkg) => {
+        if (!pkg || !newer(pkg.version, running)) return;
+        el.textContent = "plangolin " + running + " · " + pkg.version + " available";
+        el.title =
+          "Run  claude plugin update plangolin@plangolin  in a terminal, " +
+          "then restart Claude Code. /reload-plugins does not pick up skills.";
+        el.classList.add("stale");
+      })
+      .catch(() => { /* offline, or GitHub is down. The version still shows. */ });
   }
 
   async function boot() {
