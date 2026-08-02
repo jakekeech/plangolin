@@ -1230,8 +1230,11 @@
     font-size: 16px; line-height: 1; color: var(--ink-faint);
   }
 
+  /* Only there when it has something to say. Empty it still held its padding,
+     which put a blank band between the header and the proposal. */
   .plan-note { padding: .5rem .75rem; font-size: .85em; color: var(--ink-soft); flex: none; }
-  .plan-body { padding: 12px 14px 2px; overflow-y: auto; min-height: 0; }
+  .plan-note:empty { display: none; }
+  .plan-body { padding: 11px 14px 2px; overflow-y: auto; min-height: 0; }
   .plan-row1 { display: flex; align-items: baseline; gap: 8px; }
   .plan-mark { font-family: var(--mono); font-size: 15px; color: var(--pine); width: 1ch; flex: none; }
   .plan-nm { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
