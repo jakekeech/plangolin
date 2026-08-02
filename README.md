@@ -1,15 +1,9 @@
 <p align="center">
-  <img src="banner.png" alt="plangolin — see your agent's next move." width="800">
+  <img src="banner.png" alt="plangolin — see your agent's next move.">
 </p>
 
 <p align="center">
   Turn an AI agent's wall-of-text plan into a visual preview of what it would change.
-</p>
-
-![A plangolin plan review showing proposed blocks and connections](screenshot.png)
-
-<p align="center">
-  <em>A plan to add rate limiting to Express, drawn against Express's own code.</em>
 </p>
 
 ## Quick start
@@ -46,6 +40,12 @@ setup: no separate npm install, API key, account, or build step.
    cross out anything you did not ask for.
 4. **Send the decision back.** Claude continues with what survived, plus an
    explicit `OUT OF SCOPE` list so every rejection remains an instruction.
+
+![A plangolin plan review showing proposed blocks and connections](screenshot.png)
+
+<p align="center">
+  <em>A plan to add rate limiting to Express, drawn against Express's own code.</em>
+</p>
 
 Implementation details stay visible without competing for the same attention.
 At the end, plangolin counts the plan steps that change nothing about the shape
