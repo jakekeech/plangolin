@@ -1,16 +1,38 @@
 {
   "name": "plangolin",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "A system diagram that doesn't go stale.",
-  "keywords": ["architecture", "diagram", "canvas", "system-design", "cli"],
+  "keywords": [
+    "architecture",
+    "diagram",
+    "canvas",
+    "system-design",
+    "cli"
+  ],
   "homepage": "https://github.com/jakekeech/plangolin#readme",
   "bugs": "https://github.com/jakekeech/plangolin/issues",
-  "repository": { "type": "git", "url": "git+https://github.com/jakekeech/plangolin.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jakekeech/plangolin.git"
+  },
   "license": "MIT",
   "author": "jakekeech",
   "type": "module",
-  "bin": { "plangolin": "src/cli.js" },
-  "files": ["src", "app", "skills", "README.md", "LICENSE"],
-  "scripts": { "start": "node src/cli.js", "test": "node --test" },
-  "engines": { "node": ">=20" }
+  "bin": {
+    "plangolin": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "app",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }
