@@ -1,7 +1,7 @@
 {
   "name": "plangolin",
   "description": "Review a plan as a system diagram before it becomes code",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "author": {
     "name": "jakekeech"
   },

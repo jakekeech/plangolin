@@ -1236,7 +1236,15 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
     text-transform: uppercase; color: var(--ink-faint);
   }
-  .plan-dots { display: flex; gap: 5px; }
+  /* Wraps, and may shrink. A flex item defaults to min-width:auto, so a long
+     plan grew this row past the panel and carried the counter and the close
+     button out with it — at 26 proposals the ✕ sat 32px beyond the edge and
+     could not be clicked. Wrapping costs a second row of dots; the alternative
+     costs the way out of the panel. */
+  .plan-dots {
+    display: flex; gap: 5px; flex-wrap: wrap;
+    flex: 0 1 auto; min-width: 0; row-gap: 4px;
+  }
   /* The dots carry what you decided, not only where you are: filled for kept,
      hollow-grey for cut. What you have already answered stays legible without
      stepping back through it. */

@@ -1,183 +1,196 @@
 # plangolin
 
-**Approve the shape, not the wall of text.**
+**See your agent's next move.**
 
-An AI's plan is six hundred words, and almost all of them are *how* — which
-file, which function, what order. Very little says what changes about the shape
-of your system, which is the part you actually need to agree to. So people skim
-it and press accept.
+plangolin turns an AI agent's wall-of-text plan into a visual preview of what
+it would change.
 
-plangolin draws that part. Before any code is written, the plan arrives on a
-diagram: the blocks it would add, the lines between them, and a count of how
-many steps change nothing structural at all — the part you are entitled to skim.
+![A plangolin plan review showing proposed blocks and connections](screenshot.png)
 
-You step through one proposal at a time. Cross out what you did not ask for, and
-what you removed goes back to the agent as an instruction rather than as
-silence.
+*A plan to add rate limiting to Express, drawn against Express's own code. The
+current proposal is lit while the rest of the system stays visible for context.*
 
-![plangolin](screenshot.png)
+## How it works
 
-*A plan to add rate limiting to Express, drawn against Express's own code. One
-proposal at a time: here, the line the plan would draw between two blocks it
-would also add. What the step is about is lit; the rest of the system stays
-visible but out of the way.*
+1. **Ask for a change.** Claude reads the project and writes its plan without
+   changing any files.
+2. **See the plan on your system.** plangolin draws proposed blocks and
+   connections as ghosts over a graph of what already exists.
+3. **Keep or cut each proposal.** Step through the architectural changes and
+   cross out anything you did not ask for.
+4. **Send the decision back.** Claude continues with what survived, plus an
+   explicit `OUT OF SCOPE` list so every rejection remains an instruction.
 
----
+Implementation details stay visible without competing for the same attention.
+At the end, plangolin counts the plan steps that change nothing about the shape
+of the system—the part of a long plan you are entitled to skim.
 
-## Install
+## Quick start
 
 In Claude Code:
 
-```
+```text
 /plugin marketplace add jakekeech/plangolin
 /plugin install plangolin
 ```
 
-**Then restart Claude Code** — not `/reload-plugins`. A reload rebuilds a
-plugin's `commands/`, and plangolin ships a skill, so it reports success, says
-`0 skills`, and leaves `/plangolin` pointing at whatever loaded when the session
-started. That is a known bug with a traced cause — the skills emitter is not
-fired during a reload
-([#35641](https://github.com/anthropics/claude-code/issues/35641),
-[#37862](https://github.com/anthropics/claude-code/issues/37862)). Skills are
-registered at session start, so a new session is the step that works.
+Restart Claude Code once after installing, then run this in any project:
 
-The same applies after every update, and it is worth saying plainly because the
-failure is silent — no error, just the previous behaviour. The sheet prints the
-build it is running along the bottom; if that is not the version you installed,
-the session has not picked it up yet.
-
-If `/plugin` shows an empty list straight after installing, that is
-[#10565](https://github.com/anthropics/claude-code/issues/10565), and the
-install is fine. `claude plugin list` in a terminal reads the same files and
-will show it.
-
-Otherwise that is everything. The plugin carries the whole tool — there is
-nothing to `npm install`, no API key to configure, and no build step.
-
-**Turn on auto-update while you are there.** Claude Code enables it by default
-only for Anthropic's own marketplaces; everything else, including this, stays
-pinned to the version you installed until you say otherwise:
-
-`/plugin` → **Marketplaces** → **plangolin** → **Enable auto-update**
-
-Without it, `/plugin update plangolin@plangolin` is the manual equivalent. Note
-the `@plangolin` — the bare name returns "plugin not found".
-
-## Use it
-
-In any project:
-
-```
+```text
 /plangolin "add rate limiting to the API"
 ```
 
-Claude plans it the way it normally would — reading your code, writing no files.
-When the plan is ready it tells you where to look and waits:
+Claude plans the change, starts the review, and waits:
 
-```
+```text
 Open http://localhost:4300 to review the plan.
 ```
 
-Open that. Then:
+Open the link, review the proposals, and press **Approve**. That is the whole
+setup: no separate npm install, API key, account, or build step.
 
-| | |
-|---|---|
-| `←` `→` | step through the proposals, one at a time |
-| `K` / `C` | keep or cut the one you are looking at |
-| **?** top left | the request you started with |
-| **drag the title bar** | move the panel; it settles into a corner |
-| **▸ what the plan said** | the plan's own wording, to check a proposal against |
+## What you are reviewing
 
-Cut what you did not ask for, step to the end, and press **Approve**. Claude
-carries on with what survived — plus an explicit list of what you removed, so a
-rejection survives as an instruction.
+**Solid blocks** are parts of the system that already exist. **Dashed blocks
+and lines** are what the plan proposes to add. A travelling dash shows which
+way a proposed connection runs.
 
-Nothing opens a browser tab at you. If you would rather it did:
-`PLANGOLIN_OPEN=1`.
-
-## What you are looking at
-
-**Solid blocks** are the parts of your system that already exist, worked out by
-reading every import in the project. **Dashed blocks and dashed lines** are what
-the plan would add. A **travelling dash** shows which way a proposed line runs.
-
-The block the current step is about is lit; everything else dims. It dims rather
-than disappearing, because the rest of the system is what makes the lit part
+The current proposal is lit; everything else dims. It dims rather than
+disappearing because the rest of the system is what makes the proposed change
 mean anything.
 
-The count at the end — *"3 plan steps change nothing about the shape of your
-system"* — is the number the whole thing turns on. It says how much of a long
-plan you can safely skim, and you can open it to check which steps those are.
+| Control | Action |
+|---|---|
+| `←` `→` | Step through proposals one at a time |
+| `K` / `C` | Keep or cut the current proposal |
+| **?** | Show the request that started the plan |
+| **drag the title bar** | Move the review panel |
+| **▸ what the plan said** | Check the proposal against the plan's own wording |
 
-## Opening a sheet on its own
+Nothing opens a browser tab automatically. Set `PLANGOLIN_OPEN=1` if you want
+the review to open itself.
 
-The diagram is a file in your repo, and you can work on it without a plan:
+## Why a graph
+
+An AI plan can be six hundred words, and most of them describe *how*: which
+file, which function, and in what order. The smaller—but more consequential—part
+says what will change about the shape of the system. That is the part a user
+needs to agree to, and the part prose makes hardest to see.
+
+Asking the agent to summarize produces more prose from the thing being
+reviewed. Waiting for the diff is too late: the code already exists. plangolin
+puts the proposed change on the system it would affect, before implementation
+starts.
+
+A rejection must also leave a trace. Silently dropping a proposal looks the
+same as never considering it; returning it under `OUT OF SCOPE` turns it into a
+rule the agent can follow.
+
+## Installation notes
+
+Claude Code currently requires a full restart after installing or updating a
+third-party skill. `/reload-plugins` reports success but does not rebuild the
+skills registry, so it can leave `/plangolin` on an older version. The sheet
+prints its running build along the bottom so you can check it.
+
+The traced upstream issues are
+[#35641](https://github.com/anthropics/claude-code/issues/35641) and
+[#37862](https://github.com/anthropics/claude-code/issues/37862). If `/plugin`
+shows an empty list immediately after installation, see
+[#10565](https://github.com/anthropics/claude-code/issues/10565); `claude plugin
+list` in a terminal reads the same installation files and should show the
+plugin.
+
+Claude Code enables auto-update by default only for Anthropic's own
+marketplaces. Enable it for plangolin through:
+
+`/plugin` → **Marketplaces** → **plangolin** → **Enable auto-update**
+
+The manual equivalent is:
+
+```text
+/plugin update plangolin@plangolin
+```
+
+The `@plangolin` suffix matters; the bare name returns "plugin not found".
+Restart Claude Code after either update path.
+
+## Open a sheet without a plan
+
+The diagram is stored in the repository and can be used on its own:
 
 ```bash
 npx plangolin
 ```
 
-```
+```text
 plangolin/
   system.json    what the system is    — blocks, lines, what each one does
   layout.json    where the blocks sit  — coordinates, nothing else
 ```
 
-Split on purpose. Positions change every time you nudge a block; in one file
-that churn buries every real change and nobody reads the diff. Commit both.
+The files are split deliberately. Positions change whenever a block moves; if
+layout and structure shared one file, that churn would bury meaningful changes
+in the diff. Commit both files.
 
-Blocks can be moved, renamed, connected, grouped and undone. On a project with
-no sheet yet, the first run reads the code and draws one.
+Blocks can be moved, renamed, connected, grouped, and undone. On a project
+without a sheet, the first run reads the code and draws one.
 
-**If the file will not parse, plangolin refuses to load and never overwrites
-it.** A typo must not become data loss.
+If either file cannot be parsed, plangolin refuses to load it and never
+overwrites it. A typo must not become data loss.
 
-## How the diagram gets drawn
+## How the graph is drawn
 
 Structure is computed, not guessed. Every import in the project is resolved
-first, files are grouped by what they are for, and only then is a model asked
-what to call the result. Blocks that serve exactly one other block are folded
-inside it — the test is whether you can understand the parent without knowing
-the child exists, and the import graph answers that.
+first. Files are then grouped by their purpose, and a model names the result.
+Blocks that serve exactly one other block are folded inside it—the import graph
+decides whether the parent can be understood without exposing the child.
 
-A sheet stays small on purpose. Six or so blocks tells one story per view; the
-cap is on what is *on screen*, not on how big a system can be, because a folded
-group counts as one block.
+A sheet stays small on purpose. Roughly six blocks tell one story per view; the
+cap applies to what is on screen, not to the size of the system, because a
+folded group counts as one block.
 
-## What is deliberately switched off
+## Privacy and failure behaviour
 
-Two things are built and tested and currently turned off, because the product is
-about reviewing plans and they competed for the same attention:
+Repository walking, import resolution, route matching, clustering, folding,
+and edge roll-up happen locally. The hosted service receives the plan, file
+paths, a dependency list, and short excerpts; it holds the prompts and model
+key so the user does not need one.
 
-- a rail of design checks — *"this talks straight to the database"*
-- a view of what changed in git since you last looked, with the diff a click away
+When the network or model is unavailable, plangolin keeps the structural
+grouping and states the reason. Unusable model output is dropped rather than
+allowed to corrupt the sheet.
+
+## Deliberately switched off
+
+Two features are built and tested but currently disabled because they competed
+with the plan-review workflow for attention:
+
+- a rail of design checks, such as *"this talks straight to the database"*
+- a view of what changed in git since the user last looked, with the diff one
+  click away
 
 `CHANGE_VIEW` at the top of `app/app.js` turns both back on.
 
-## Layout
+## Development
 
-```
+```text
 src/cli.js             plangolin, and plangolin review <file>
-src/review-command.js  starts a review and waits for your answer
+src/review-command.js  starts a review and waits for the answer
 src/plan-steps.js      cuts a plan into numbered steps
-src/plan-delta.js      asks what those steps do to the shape of the system
-src/plan-brief.js      turns what you kept into what the agent is told
+src/plan-delta.js      maps those steps onto the shape of the system
+src/plan-brief.js      turns review decisions into agent instructions
 src/plan-store.js      one live review and everything that happens to it
 src/filegraph.js       every reference in the project
 src/cluster.js         which files belong in the same block
 src/workspace.js       the only file that touches the filesystem
-app/                   the canvas — one html, one css, one js
-skills/plangolin/      what Claude does when you run /plangolin
-test/                  node --test, no framework
+app/                   the canvas—one HTML file, one CSS file, one JS file
+skills/plangolin/      what Claude does when /plangolin is invoked
+test/                  Node's built-in test runner; no framework
 ```
 
-**No dependencies and no build step.** Node's own `http` and `fs`; the font is
-embedded in the CSS. Node 20+.
-
-Your plan and a summary of your sheet are sent to plangolin's hosted service,
-which holds the prompts and the model key so you do not need one. Your source
-code is read locally and never leaves the machine.
+There are no runtime dependencies and no build step. plangolin uses Node's own
+`http` and `fs`; the font is embedded in the CSS. Node 20+.
 
 ```bash
 npm test        # 338 tests
