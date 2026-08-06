@@ -32,3 +32,6 @@ DOCS.md
 
 # plangolin's own sheet when dogfooding on this repo
 /plangolin/
+
+# isolated implementation workspaces
+.worktrees/
