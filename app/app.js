@@ -1,3 +1,5 @@
+import { generatedPositions, layeredPositions } from "./graph-layout.js";
+
 (function () {
   "use strict";
 
@@ -4664,121 +4666,6 @@
      a time, so they cost nothing by overlapping in world space, and every
      view then centres the same way. */
   const LAYOUT_COL = 250, LAYOUT_ROW = 138, LAYOUT_PER_ROW = 4;
-  // Past this many columns a chain is wrapped into a new band underneath.
-  // One row a mile wide is technically the truth and useless to look at:
-  // fit would shrink it until nothing could be read.
-  const LAYOUT_MAX_COLS = 5;
-
-  /* Where the blocks go, from what uses what.
-
-     Column is depth: a block sits to the right of everything it uses, so the
-     things nothing depends on start at the left and the flow reads the way
-     the wires are already drawn. That is the whole reason to prefer this to
-     a grid — the picture carries the dependency structure instead of the
-     order the scan happened to emit.
-
-     Cycles are broken before layering, not after. Left in, a single edge
-     closing a loop drags its whole cycle to the far right — a worker that
-     writes back to Orders pushed Orders past the database, the cache and the
-     queue it feeds, so three lines that should have read left to right came
-     out pointing backwards. The loop-closing edge is still drawn; it just
-     gets no say in what sits where.
-
-     Then longest-path layering, relaxed until it settles and bounded by the
-     node count, and one barycentre sweep — each block pulled towards the
-     average row of what feeds it. That sweep is the cheap half of Sugiyama's
-     method and takes out most of the line crossings for a fraction of the
-     work. */
-  function layeredPositions(ids, edges) {
-    const here = new Set(ids);
-    const all = edges.filter((e) => here.has(e.from) && here.has(e.to) && e.from !== e.to);
-
-    /* Nothing to follow, so nothing to lay out along: a level whose blocks
-       do not reference each other — common enough inside a container — would
-       otherwise come out as one tall column, since every block lands in
-       layer 0. A grid is the honest shape for a set with no order to it. */
-    if (!all.length) {
-      return new Map(ids.map((id, i) => [id, {
-        x: (i % LAYOUT_PER_ROW) * LAYOUT_COL,
-        y: Math.floor(i / LAYOUT_PER_ROW) * LAYOUT_ROW,
-      }]));
-    }
-
-    /* Depth first, dropping any edge that reaches a block already on the
-       stack: that edge is what closes the loop. Started from the blocks
-       nothing feeds, so the direction the system actually flows in is the
-       one that survives, and an arbitrary entry point does not decide it. */
-    const out = new Map(ids.map((id) => [id, []]));
-    all.forEach((e) => out.get(e.from).push(e));
-    const fed = new Set(all.map((e) => e.to));
-    const state = new Map();                    // 1 = on the stack, 2 = finished
-    const loops = new Set();
-    const walk = (id) => {
-      state.set(id, 1);
-      out.get(id).forEach((e) => {
-        const s = state.get(e.to);
-        if (s === 1) loops.add(e);
-        else if (s === undefined) walk(e.to);
-      });
-      state.set(id, 2);
-    };
-    ids.filter((id) => !fed.has(id)).forEach((id) => { if (!state.has(id)) walk(id); });
-    ids.forEach((id) => { if (!state.has(id)) walk(id); });
-    const links = all.filter((e) => !loops.has(e));
-
-    const col = new Map(ids.map((id) => [id, 0]));
-    for (let pass = 0; pass < ids.length; pass++) {
-      let moved = false;
-      links.forEach((e) => {
-        const want = col.get(e.from) + 1;
-        if (col.get(e.to) < want) { col.set(e.to, want); moved = true; }
-      });
-      if (!moved) break;
-    }
-
-    const last = ids.reduce((m, id) => Math.max(m, col.get(id)), 0);
-    const columns = [];
-    for (let c = 0; c <= last; c++) columns.push(ids.filter((id) => col.get(id) === c));
-
-    const feeders = new Map(ids.map((id) => [id, []]));
-    links.forEach((e) => feeders.get(e.to).push(e.from));
-
-    // Filled left to right. Layering guarantees a block's feeders sit in
-    // strictly earlier columns, so their rows are always known by the time
-    // they are needed.
-    const row = new Map();
-    const bary = (id) => {
-      const ps = feeders.get(id).filter((p) => row.has(p));
-      // Nothing feeds it, so nothing pulls it: it keeps its place rather
-      // than being sorted to an arbitrary one.
-      if (!ps.length) return Number.MAX_SAFE_INTEGER;
-      return ps.reduce((s, p) => s + row.get(p), 0) / ps.length;
-    };
-    columns.forEach((column, c) => {
-      if (c > 0) column.sort((a, b) => bary(a) - bary(b));
-      column.forEach((id, i) => row.set(id, i));
-    });
-
-    const pos = new Map();
-    let bandTop = 0;
-    for (let start = 0; start < columns.length; start += LAYOUT_MAX_COLS) {
-      const band = columns.slice(start, start + LAYOUT_MAX_COLS);
-      const tallest = band.reduce((m, c) => Math.max(m, c.length), 0);
-      band.forEach((column, i) => {
-        // Short columns sit centred against the tallest one, so a fan in or
-        // out reads as symmetric rather than top-aligned.
-        const offset = (tallest - column.length) / 2;
-        column.forEach((id, r) => {
-          pos.set(id, {
-            x: i * LAYOUT_COL,
-            y: Math.round((bandTop + offset + r) * LAYOUT_ROW),
-          });
-        });
-      });
-      bandTop += tallest;
-    }
-    return pos;
-  }
 
   function placeUnpositioned() {
     const missing = S.nodes.filter((n) => !Number.isFinite(n.x) || !Number.isFinite(n.y));
@@ -5096,14 +4983,14 @@
   }
 
   async function replay(moves) {
+    const positions = generatedPositions(moves);
     for (const move of moves) {
       applyMove(move, { transient: true });
       if (move.t === "addNode") {
         const n = node(move.node.id);
-        if (n && !Number.isFinite(n.x)) {
-          const spot = freeSpot(lastPlaced);
+        const spot = positions.get(move.node.id);
+        if (n && spot && !Number.isFinite(n.x)) {
           n.x = spot.x; n.y = spot.y;
-          lastPlaced = n.id;
         }
       }
       render();
@@ -5111,7 +4998,6 @@
     }
     render();
   }
-  let lastPlaced = null;
 
   function fatal(message) {
     document.getElementById("checks").innerHTML =
