@@ -1,4 +1,5 @@
 import { generatedPositions, layeredPositions } from "./graph-layout.js";
+import { createRolledLoader } from "./rolled-loader.js";
 
 (function () {
   "use strict";
@@ -1484,6 +1485,15 @@ import { generatedPositions, layeredPositions } from "./graph-layout.js";
     ctx.restore();
   }
 
+  const planLoader = createRolledLoader({
+    draw: drawRolled,
+    palette: ballPalette,
+    reducedMotion: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    requestFrame: (callback) => requestAnimationFrame(callback),
+    cancelFrame: (id) => cancelAnimationFrame(id),
+    now: () => Date.now(),
+  });
+
   /* ---------------------------- the face ----------------------------
 
      Head-on, for the tab icon. Same rule as the side mark: the armoured
@@ -2441,12 +2451,20 @@ import { generatedPositions, layeredPositions } from "./graph-layout.js";
   function renderPlan() {
     const note = document.getElementById("plan-note");
     const body = document.getElementById("plan-body");
+    const loading = document.getElementById("plan-loading");
+    const loadingBall = document.getElementById("plan-loading-ball");
     const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
     /* The stepper's keys travel with the panel, and nothing else renders
        them — so a review that ends without passing through here left K and C
        floating over the sheet, offering shortcuts for a decision already
        sent. Cleared on the way out, at the one place every ending shares. */
-    if (!plan) { setPlanOpen(false); renderHint(); return; }
+    if (!plan) {
+      planLoader.stop();
+      loading.hidden = true;
+      setPlanOpen(false);
+      renderHint();
+      return;
+    }
 
     const approve = document.getElementById("plan-approve");
     const thinking = plan.status === "thinking";
@@ -2454,13 +2472,17 @@ import { generatedPositions, layeredPositions } from "./graph-layout.js";
 
     if (thinking) {
       renderAsk();
-      note.textContent = "Reading the plan against your sheet…";
+      note.textContent = "";
+      loading.hidden = false;
       body.hidden = true;
+      planLoader.start(loadingBall, 58);
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
       foot.dataset.stage = "thinking";
       return;
     }
+    planLoader.stop();
+    loading.hidden = true;
     note.textContent = plan.note || "";
     body.hidden = false;
 
@@ -2792,7 +2814,10 @@ import { generatedPositions, layeredPositions } from "./graph-layout.js";
     ev.stopPropagation();
     const panel = document.getElementById("planpanel");
     const shut = panel.dataset.collapsed === "true";
-    panel.dataset.collapsed = String(!shut);
+    const collapsed = !shut;
+    panel.dataset.collapsed = String(collapsed);
+    if (collapsed) planLoader.stop();
+    else renderPlan();
     ev.currentTarget.textContent = shut ? "×" : "▸";
     ev.currentTarget.setAttribute("aria-label", shut ? "Collapse" : "Expand");
   });
