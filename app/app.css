@@ -24,6 +24,7 @@
     --idea-wash:  #E2E8E3;
 
     --grid:       rgba(27, 27, 25, 0.12);
+    --plan-dock-motion: .34s cubic-bezier(.22, 1, .36, 1);
 
     --ui: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -301,7 +302,10 @@
   .hint-what { margin-left: 1px; }
   /* Positioned in JS to sit under the panel; the corner rules above are its
      starting point before a review exists. */
-  .hint-plan { right: auto; bottom: auto; }
+  .hint-plan {
+    right: auto; bottom: auto;
+    transition: left var(--plan-dock-motion), top var(--plan-dock-motion);
+  }
 
   /* Stays a button — paper, ink border, pine lift — just smaller than it was.
      Only the picker's animation changed. */
@@ -1254,11 +1258,15 @@
     /* The snap is a glide, not a jump: an abrupt one reads as the panel being
        yanked out of your hand. Suppressed while dragging so it tracks the
        pointer exactly. */
-    transition: left .34s cubic-bezier(.22, 1, .36, 1), top .34s cubic-bezier(.22, 1, .36, 1);
+    transition: left var(--plan-dock-motion), top var(--plan-dock-motion);
   }
   .shell[data-plan="open"] .planpanel { display: flex; flex-direction: column; }
+  .planpanel[data-dragging="true"],
+  .planpanel[data-dragging="true"] ~ .hint-plan {
+    transition: none;
+  }
   .planpanel[data-dragging="true"] {
-    transition: none; box-shadow: 0 12px 34px rgba(27, 27, 25, .22);
+    box-shadow: 0 12px 34px rgba(27, 27, 25, .22);
   }
 
   .plan-grip {

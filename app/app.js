@@ -1,4 +1,5 @@
 import { generatedPositions, layeredPositions } from "./graph-layout.js";
+import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
 (function () {
@@ -1969,13 +1970,16 @@ import { createRolledLoader } from "./rolled-loader.js";
       return;
     }
     const c = canvas.getBoundingClientRect(), p = panel.getBoundingClientRect();
-    const below = p.bottom - c.top + 8;
-    // If the panel is low enough that under it leaves the canvas, go above it
-    // instead rather than off the bottom edge.
-    const fits = below + el.offsetHeight + 8 < c.height;
+    const target = planHintPosition({
+      panelX: p.left - c.left,
+      panelY: p.top - c.top,
+      panelHeight: p.height,
+      hintHeight: el.offsetHeight,
+      canvasHeight: c.height,
+    });
     el.style.right = "auto"; el.style.bottom = "auto";
-    el.style.left = Math.round(p.left - c.left) + "px";
-    el.style.top = Math.round(fits ? below : p.top - c.top - el.offsetHeight - 8) + "px";
+    el.style.left = target.left + "px";
+    el.style.top = target.top + "px";
   }
 
   /* Two hints, because there are two questions.
@@ -2755,11 +2759,18 @@ import { createRolledLoader } from "./rolled-loader.js";
         if (d.x < ax && d.y < ay) d.y = ay;
       }
       panel.dataset.dragging = "false";        // transition back on: this glides
-      panel.style.left = d.x + "px";
-      panel.style.top = d.y + "px";
+      const hint = document.getElementById("plan-keys");
+      if (hint) {
+        dockPlanAndHint(panel, hint, d, {
+          panelHeight: panel.offsetHeight,
+          hintHeight: hint.offsetHeight,
+          canvasHeight: canvas.clientHeight,
+        });
+      } else {
+        panel.style.left = d.x + "px";
+        panel.style.top = d.y + "px";
+      }
       drag = null;
-      // After the glide, not during: the panel's final rect is what to sit under.
-      setTimeout(positionHint, 360);
     };
     grip.addEventListener("pointerup", land);
     grip.addEventListener("pointercancel", land);
