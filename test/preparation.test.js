@@ -199,6 +199,31 @@ test("readPreparation requires a nonempty expected fingerprint", async (t) => {
   assert.deepEqual(await readPreparation(root, record.fingerprint, { cacheRoot }), record);
 });
 
+test("a newer generation created during result read fences the older cache hit", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const record = recordFor(root, cacheRoot);
+  await writePreparation(root, record, { cacheRoot });
+  const paths = preparationPaths(root, { cacheRoot });
+  let advanced = false;
+  const io = {
+    ...fs,
+    async readFile(file, ...args) {
+      const value = await fs.readFile(file, ...args);
+      if (!advanced && path.basename(file).startsWith("result-000000000001-")) {
+        advanced = true;
+        const owner = "22222222-2222-4222-8222-222222222222";
+        const slot = path.join(paths.dir, "lease-000000000002.claim");
+        await fs.mkdir(slot);
+        await fs.mkdir(path.join(slot, `${owner}-${process.pid}-${Date.now()}.owner`));
+      }
+      return value;
+    },
+  };
+
+  assert.equal(await readPreparation(root, record.fingerprint, { cacheRoot, fs: io }), null);
+  assert.equal(advanced, true);
+});
+
 test("rejects malformed, partial, wrong-version, and wrong-root results", async (t) => {
   const { root, cacheRoot } = await temporaryProject(t);
   const paths = preparationPaths(root, { cacheRoot });
@@ -368,6 +393,12 @@ test("an exact cached preparation skips discovery, naming, and move generation",
   });
 
   assert.deepEqual(cached, first);
+  assert.deepEqual(
+    (await fs.readdir(preparationPaths(root, { cacheRoot }).dir))
+      .filter((entry) => entry.startsWith("lease-"))
+      .sort(),
+    ["lease-000000000001.claim", "lease-000000000002.claim"],
+  );
 });
 
 test("a completed fingerprint miss advances immediately to a new generation", async (t) => {
@@ -588,6 +619,35 @@ test("future-dated and expired leases are not live despite a live PID", async (t
   assert.deepEqual(await preparationStartup(root, {
     cacheRoot, now: () => 20_000, processAlive: () => true,
   }), { live: true, ready: true });
+});
+
+test("malformed owner identities are never considered live or followed", async (t) => {
+  const cases = [
+    "11111111-1111-4111-8111-111111111111-0-1000.owner",
+    "11111111-1111-4111-8111-111111111111--1-1000.owner",
+    "11111111-1111-4111-8111-111111111111-9007199254740992-1000.owner",
+    "00000000-0000-0000-0000-000000000000-123-1000.owner",
+    "not-a-uuid-123-1000.owner",
+  ];
+
+  for (const [index, ownerName] of cases.entries()) {
+    await t.test(ownerName, async (t) => {
+      const { root, cacheRoot } = await temporaryProject(t, `plangolin-invalid-owner-${index}-`);
+      const paths = preparationPaths(root, { cacheRoot });
+      const slot = path.join(paths.dir, "lease-000000000001.claim");
+      await fs.mkdir(slot, { recursive: true });
+      await fs.mkdir(path.join(slot, ownerName));
+      const observedAt = Date.now();
+      let processChecks = 0;
+
+      assert.deepEqual(await preparationStartup(root, {
+        cacheRoot,
+        now: () => observedAt,
+        processAlive: () => { processChecks += 1; return true; },
+      }), { live: false, ready: false });
+      assert.equal(processChecks, 0);
+    });
+  }
 });
 
 test("a fenced owner cannot overwrite a newer owner's lease, progress, or result", async (t) => {

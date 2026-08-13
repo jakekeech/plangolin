@@ -16,7 +16,7 @@ export const LOCK_STALE_MS = LEASE_TTL_MS;
 
 const VERSION = 1;
 const GENERATION_WIDTH = 12;
-const UUID = "[0-9a-f-]{36}";
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
 const LEASE_RE = /^lease-(\d{12})\.claim$/;
 const OWNER_RE = new RegExp(`^(${UUID})-(\\d+)-(\\d+)\\.owner$`);
 const RESULT_RE = new RegExp(`^result-(\\d{12})-(${UUID}|manual)\\.json$`);
@@ -185,22 +185,32 @@ async function winningLease(root, options = {}) {
   if (!generations.length) return null;
   const generation = Math.max(...generations.map((entry) => entry.generation));
   const slot = path.join(paths.dir, claimName(generation));
-  const owners = (await namesIn(slot, io)).flatMap((name) => {
+  const entries = await namesIn(slot, io);
+  const owners = entries.flatMap((name) => {
     const match = OWNER_RE.exec(name);
-    return match ? [{
+    const pid = Number(match?.[2]);
+    const startedAt = Number(match?.[3]);
+    return match && Number.isSafeInteger(pid) && pid > 0 &&
+      Number.isSafeInteger(startedAt) && startedAt >= 0 ? [{
       version: VERSION, rootHash: paths.rootHash, generation,
-      owner: match[1], pid: Number(match[2]), startedAt: Number(match[3]), name,
+      owner: match[1], pid, startedAt, name,
     }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
   if (owners.length) return owners[0];
+  if (entries.length) return { generation, invalid: true };
   let stat;
   try { stat = await io.stat(slot); }
   catch { return { generation, incomplete: true, reservedAt: 0 }; }
   return { generation, incomplete: true, reservedAt: stat.mtimeMs };
 }
 
+export async function preparationGeneration(root, options = {}) {
+  return (await winningLease(root, options))?.generation || 0;
+}
+
 function sameLease(left, right) {
-  return Boolean(left && right && left.generation === right.generation && left.owner === right.owner);
+  return Boolean(left && right && !left.invalid && !right.invalid &&
+    left.generation === right.generation && left.owner === right.owner);
 }
 
 async function completionExists(paths, lease, io) {
@@ -216,20 +226,18 @@ export async function readPreparation(root, fingerprint, options = {}) {
   if (typeof fingerprint !== "string" || !fingerprint) {
     throw new Error("an expected preparation fingerprint is required");
   }
-  const io = options.fs || nodeFs;
-  const paths = preparationPaths(root, options);
   const lease = await winningLease(root, options);
-  if (!lease || !await completionExists(paths, lease, io)) return null;
-  const record = await readJson(resultPath(paths, lease), io);
-  return validRecord(record, paths.rootHash, fingerprint) ? record : null;
+  return readCompletedLease(root, lease, { ...options, expectedFingerprint: fingerprint });
 }
 
 async function readCompletedLease(root, lease, options = {}) {
   const io = options.fs || nodeFs;
   const paths = preparationPaths(root, options);
-  if (!lease || lease.incomplete || !await completionExists(paths, lease, io)) return null;
+  if (!lease || lease.incomplete || lease.invalid || !await completionExists(paths, lease, io)) return null;
   const record = await readJson(resultPath(paths, lease), io);
-  return validRecord(record, paths.rootHash) ? record : null;
+  const fingerprint = options.expectedFingerprint ?? record?.fingerprint;
+  if (!validRecord(record, paths.rootHash, fingerprint)) return null;
+  return sameLease(await winningLease(root, options), lease) ? record : null;
 }
 
 async function atomicOwnerJson(paths, kind, lease, value, io, beforeRename) {
@@ -287,7 +295,7 @@ async function newestHeartbeat(root, lease, options = {}) {
 }
 
 async function leaseIsLive(root, lease, options = {}) {
-  if (!lease) return false;
+  if (!lease || lease.invalid) return false;
   const io = options.fs || nodeFs;
   const now = options.now || Date.now;
   const paths = preparationPaths(root, options);
@@ -470,7 +478,20 @@ export async function preparationStartup(root, options = {}) {
   const ttl = options.leaseTtlMs ?? LEASE_TTL_MS;
   const paths = preparationPaths(root, options);
   const before = await winningLease(root, options);
-  if (!await leaseIsLive(root, before, options)) return { live: false, ready: false };
+  if (!await leaseIsLive(root, before, options)) {
+    const minimum = options.completedAfterGeneration;
+    if (!before || before.invalid || !Number.isSafeInteger(minimum) || before.generation <= minimum) {
+      return { live: false, ready: false };
+    }
+    const progress = await readJson(progressPath(paths, before), io);
+    const completed = await readCompletedLease(root, before, options);
+    const ready = Boolean(
+      completed && progress && progress.owner === before.owner &&
+      progress.generation === before.generation && progress.phase === "complete" &&
+      Number.isInteger(progress.revision) && progress.revision >= 1
+    );
+    return { live: false, ready };
+  }
   const progress = await readJson(progressPath(paths, before), io);
   const after = await winningLease(root, options);
   if (!sameLease(before, after)) return { live: await leaseIsLive(root, after, options), ready: false };
@@ -512,6 +533,7 @@ export async function runPreparation(root, options = {}) {
   let report;
   let stopHeartbeat = () => {};
   let forceNew = false;
+  let cachedRecord = null;
 
   for (;;) {
     const acquired = await acquireLease(workspaceRoot, { ...options, forceNew });
@@ -532,7 +554,7 @@ export async function runPreparation(root, options = {}) {
         fingerprint = fingerprintGraph(graph);
       }
       const cached = await readPreparation(workspaceRoot, fingerprint, options);
-      if (cached) return cached;
+      if (cached) cachedRecord = cached;
       forceNew = true;
       continue;
     }
@@ -548,6 +570,14 @@ export async function runPreparation(root, options = {}) {
     report = progressWriter(workspaceRoot, lease, options);
     await report({ phase: "starting", counts: {} });
     if (options.startupHoldMs > 0) await (options.sleep || sleepFor)(options.startupHoldMs);
+    if (cachedRecord) {
+      await publishOwnedResult(workspaceRoot, lease, cachedRecord, options);
+      await report({
+        phase: "complete",
+        counts: { moves: cachedRecord.moves.length, dropped: cachedRecord.dropped.length },
+      });
+      return cachedRecord;
+    }
     if (!graph) {
       graph = await buildGraph(ws);
       fingerprint = fingerprintGraph(graph);

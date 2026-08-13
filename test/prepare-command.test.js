@@ -30,6 +30,7 @@ async function temporaryProject(t) {
 
 function childProcessDouble() {
   const child = new EventEmitter();
+  child.pid = 987_654;
   child.unrefs = 0;
   child.unref = () => { child.unrefs += 1; return child; };
   return child;
@@ -205,6 +206,99 @@ test("a partially published reservation cannot let generations one and two both 
   assert.ok(results.every((result) => result.code === 1));
 });
 
+test("a live launcher cannot be replaced across expiry at the spawn boundary", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let tick = 1_000;
+  let spawns = 0;
+  let follower;
+  const options = {
+    cacheRoot,
+    cliPath: CLI_PATH,
+    now: () => tick,
+    processAlive: () => true,
+    pollMs: 1,
+    timeoutMs: 5,
+    sleep: async (milliseconds) => { tick += milliseconds; await Promise.resolve(); },
+    spawn: () => {
+      spawns += 1;
+      if (spawns === 1) {
+        tick += LAUNCHER_RESERVATION_MS + 1;
+        follower = runPrepareCommand(root, options);
+      }
+      return childProcessDouble();
+    },
+  };
+
+  const first = await runPrepareCommand(root, options);
+  const second = await follower;
+
+  assert.equal(spawns, 1);
+  assert.equal(first.code, 1);
+  assert.equal(second.code, 1);
+});
+
+test("a slow live child keeps followers from spawning after the launcher TTL", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let tick = 1_000;
+  const launcherPid = 123_456;
+  const childPid = 234_567;
+  const alive = new Set([launcherPid, childPid]);
+  let spawns = 0;
+  const options = {
+    cacheRoot,
+    cliPath: CLI_PATH,
+    pid: launcherPid,
+    now: () => tick,
+    processAlive: (pid) => alive.has(pid),
+    pollMs: 1,
+    timeoutMs: 5,
+    sleep: async (milliseconds) => { tick += milliseconds; },
+    spawn: () => {
+      spawns += 1;
+      const child = childProcessDouble();
+      child.pid = childPid;
+      return child;
+    },
+  };
+
+  assert.equal((await runPrepareCommand(root, options)).code, 1);
+  alive.delete(launcherPid);
+  tick += LAUNCHER_RESERVATION_MS + 1;
+  assert.equal((await runPrepareCommand(root, options)).code, 1);
+  assert.equal(spawns, 1);
+});
+
+test("a failed handed-off child lets a later caller launch a replacement", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let tick = 1_000;
+  const launcherPid = 345_678;
+  const childPid = 456_789;
+  const alive = new Set([launcherPid, childPid]);
+  let spawns = 0;
+  const options = {
+    cacheRoot,
+    cliPath: CLI_PATH,
+    pid: launcherPid,
+    now: () => tick,
+    processAlive: (pid) => alive.has(pid),
+    pollMs: 1,
+    timeoutMs: 5,
+    sleep: async (milliseconds) => { tick += milliseconds; },
+    spawn: () => {
+      spawns += 1;
+      const child = childProcessDouble();
+      child.pid = childPid + spawns - 1;
+      alive.add(child.pid);
+      return child;
+    },
+  };
+
+  assert.equal((await runPrepareCommand(root, options)).code, 1);
+  alive.delete(childPid);
+  assert.equal((await runPrepareCommand(root, options)).code, 1);
+  assert.equal(spawns, 2);
+});
+
 test("a detached spawn error is a startup failure, not a success message", async (t) => {
   const { root, cacheRoot } = await temporaryProject(t);
   const child = childProcessDouble();
@@ -306,4 +400,28 @@ test("the real prepare CLI returns after startup while its hidden worker complet
   }
   assert.equal(result?.version, 1);
   assert.deepEqual(result?.moves, []);
+  for (let i = 0; i < 200; i++) {
+    const names = await fs.readdir(paths.dir);
+    if (names.some((name) => name.startsWith("complete-"))) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(
+    (await fs.readdir(paths.dir)).filter((name) => name.startsWith("complete-")).length,
+    1,
+  );
+
+  const repeated = await execFile(process.execPath, [CLI_PATH, "prepare"], {
+    cwd: root,
+    env: { ...process.env, PLANGOLIN_CACHE_DIR: cacheRoot },
+    timeout: 5_000,
+  });
+  assert.equal(repeated.stdout, "Preparing this project's system map in the background.\n");
+  assert.equal(repeated.stderr, "");
+  let completed = [];
+  for (let i = 0; i < 200; i++) {
+    completed = (await fs.readdir(paths.dir)).filter((name) => name.startsWith("complete-"));
+    if (completed.length === 2) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(completed.length, 2);
 });
