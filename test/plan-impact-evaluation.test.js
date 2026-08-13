@@ -255,6 +255,97 @@ test("live runner rejects a service that does not acknowledge the requested effo
   }), /did not acknowledge/i);
 });
 
+test("live runner records an unexpected success for every failure-labeled case run", async () => {
+  const failureCase = corpusCase({
+    id: "malformed-response",
+    expected: { failureClass: "malformed" },
+  });
+  const result = await runLiveEvaluation({
+    cases: [corpusCase(), failureCase],
+    repeats: 2,
+    call: async ({ contextKind, effort }) => {
+      const targetId = contextKind === "named" ? "auth" : "group:auth";
+      return {
+        parsed: { impacts: [
+          impact({ targetId }),
+          impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+        ] },
+        appliedEffort: effort,
+        evidence: "live-model",
+      };
+    },
+  });
+
+  for (const metrics of Object.values(result.variants)) {
+    assert.equal(metrics.expectedFailureChecks, 2);
+    assert.equal(metrics.expectedFailureMatches, 0);
+  }
+  assert.equal(result.decision, "fail");
+  assert.ok(result.gate.reasons.some((reason) => /failure-handling scenarios/i.test(reason)));
+});
+
+test("separate effort URLs run against the ordinary service response contract", async () => {
+  const urls = [];
+  const requestBodies = [];
+  const lines = [];
+  await main({
+    env: {
+      PLANGOLIN_EVAL_LIVE: "1",
+      PLANGOLIN_EVAL_HIGH_URL: "https://high-effort.example",
+      PLANGOLIN_EVAL_MEDIUM_URL: "https://medium-effort.example",
+      PLANGOLIN_EVAL_REPEATS: "2",
+    },
+    cases: [corpusCase()],
+    stdout: { write(chunk) { lines.push(String(chunk)); } },
+    fetchImpl: async (url, options) => {
+      urls.push(url);
+      const body = JSON.parse(options.body);
+      requestBodies.push(body);
+      const targetId = body.prompt.includes("group:auth") ? "group:auth" : "auth";
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            parsed: { impacts: [
+              impact({ targetId }),
+              impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+            ] },
+            provider: "live-provider",
+            model: "live-model",
+          };
+        },
+      };
+    },
+  });
+
+  assert.deepEqual(urls, [
+    ...Array(4).fill("https://high-effort.example/v1/impact"),
+    ...Array(4).fill("https://medium-effort.example/v1/impact"),
+  ]);
+  assert.ok(requestBodies.every((body) =>
+    JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["installId", "prompt"])));
+  const output = JSON.parse(lines.join(""));
+  assert.equal(output.decision, "pass");
+  assert.deepEqual(output.evidence, {
+    verifiedLiveModelCalls: 8,
+    requiredLiveModelCalls: 8,
+  });
+});
+
+test("separate effort URL attestation rejects one shared service URL", async () => {
+  await assert.rejects(() => main({
+    env: {
+      PLANGOLIN_EVAL_LIVE: "1",
+      PLANGOLIN_EVAL_HIGH_URL: "https://same.example",
+      PLANGOLIN_EVAL_MEDIUM_URL: "https://same.example/",
+    },
+    cases: [corpusCase()],
+    fetchImpl: async () => { throw new Error("must reject before fetch"); },
+    stdout: { write() {} },
+  }), /distinct/i);
+});
+
 test("fixed corpus covers every specified semantic and resilience scenario", async () => {
   const text = await readFile(new URL("../evaluation/plan-impact/cases.json", import.meta.url), "utf8");
   const cases = JSON.parse(text);

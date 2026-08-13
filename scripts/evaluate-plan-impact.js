@@ -282,7 +282,12 @@ export async function runLiveEvaluation({ cases, call, repeats = 2 }) {
             if (!response.parsed || !Array.isArray(response.parsed.impacts)) {
               repeatedScores.push(failureScore(testCase, "malformed"));
             } else {
-              repeatedScores.push(scoreCase(testCase, response.parsed, { contextKind }));
+              const score = scoreCase(testCase, response.parsed, { contextKind });
+              repeatedScores.push(testCase.expected?.failureClass ? {
+                ...score,
+                expectedFailureChecks: 1,
+                expectedFailureMatches: 0,
+              } : score);
             }
           } catch (error) {
             if (/did not acknowledge/i.test(error?.message || "")) throw error;
@@ -332,43 +337,94 @@ async function loadCases() {
   return parsed;
 }
 
+function normalizedServiceUrl(value, name) {
+  let url;
+  try { url = new URL(value); }
+  catch { throw new Error(`${name} must be a valid HTTP(S) URL`); }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`${name} must be a valid HTTP(S) URL`);
+  }
+  return url.href.replace(/\/$/, "");
+}
+
+async function requestImpact({ serviceUrl, body, fetchImpl }) {
+  let response;
+  try {
+    response = await fetchImpl(`${serviceUrl.replace(/\/$/, "")}/v1/impact`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(180000),
+    });
+  } catch (cause) {
+    const error = new Error("evaluation request failed", { cause });
+    error.evaluationClass = cause?.name === "TimeoutError" ? "timeout" : "network";
+    throw error;
+  }
+  let data;
+  try { data = await response.json(); }
+  catch {
+    const error = new Error("evaluation response was malformed");
+    error.evaluationClass = "malformed";
+    throw error;
+  }
+  if (!response.ok) {
+    const error = new Error("evaluation service returned an error");
+    error.evaluationClass = response.status === 429 ? "quota"
+      : response.status === 403 ? "refusal"
+        : "service";
+    throw error;
+  }
+  return data;
+}
+
 function createLiveCall({ env, fetchImpl }) {
+  const configuredHigh = env.PLANGOLIN_EVAL_HIGH_URL;
+  const configuredMedium = env.PLANGOLIN_EVAL_MEDIUM_URL;
+  if (configuredHigh || configuredMedium) {
+    if (!configuredHigh || !configuredMedium) {
+      throw new Error("PLANGOLIN_EVAL_HIGH_URL and PLANGOLIN_EVAL_MEDIUM_URL are both required");
+    }
+    const highUrl = normalizedServiceUrl(configuredHigh, "PLANGOLIN_EVAL_HIGH_URL");
+    const mediumUrl = normalizedServiceUrl(configuredMedium, "PLANGOLIN_EVAL_MEDIUM_URL");
+    if (highUrl === mediumUrl) {
+      throw new Error("high- and medium-effort evaluation URLs must be distinct instances");
+    }
+    const byEffort = { high: highUrl, medium: mediumUrl };
+    return async ({ effort, prompt }) => {
+      const data = await requestImpact({
+        serviceUrl: byEffort[effort],
+        body: { installId: "plan-impact-evaluation", prompt },
+        fetchImpl,
+      });
+      if (typeof data.provider !== "string" || !data.provider ||
+          typeof data.model !== "string" || !data.model) {
+        const error = new Error("evaluation service did not identify its live model");
+        error.evaluationClass = "malformed";
+        throw error;
+      }
+      return { parsed: data.parsed, appliedEffort: effort, evidence: "live-model" };
+    };
+  }
+
   const serviceUrl = env.PLANGOLIN_EVAL_SERVICE_URL;
   if (!serviceUrl) {
-    throw new Error("PLANGOLIN_EVAL_SERVICE_URL is required for an effort-aware evaluation service");
+    throw new Error(
+      "configure PLANGOLIN_EVAL_SERVICE_URL or distinct PLANGOLIN_EVAL_HIGH_URL and " +
+      "PLANGOLIN_EVAL_MEDIUM_URL instances",
+    );
   }
+  const normalizedUrl = normalizedServiceUrl(serviceUrl, "PLANGOLIN_EVAL_SERVICE_URL");
   return async ({ caseId, contextKind, effort, scenario, prompt }) => {
-    let response;
-    try {
-      response = await fetchImpl(`${serviceUrl.replace(/\/$/, "")}/v1/impact`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          installId: "plan-impact-evaluation",
-          prompt,
-          evaluation: { caseId, contextKind, effort, scenario },
-        }),
-        signal: AbortSignal.timeout(180000),
-      });
-    } catch (cause) {
-      const error = new Error("evaluation request failed", { cause });
-      error.evaluationClass = cause?.name === "TimeoutError" ? "timeout" : "network";
-      throw error;
-    }
-    let data;
-    try { data = await response.json(); }
-    catch {
-      const error = new Error("evaluation response was malformed");
-      error.evaluationClass = "malformed";
-      throw error;
-    }
-    if (!response.ok) {
-      const error = new Error("evaluation service returned an error");
-      error.evaluationClass = response.status === 429 ? "quota"
-        : response.status === 403 ? "refusal"
-          : "service";
-      throw error;
-    }
+    const data = await requestImpact({
+      serviceUrl: normalizedUrl,
+      body: {
+        installId: "plan-impact-evaluation",
+        prompt,
+        evaluation: { caseId, contextKind, effort, scenario },
+      },
+      fetchImpl,
+    });
     return {
       parsed: data.parsed,
       appliedEffort: data.evaluation?.effort ?? data.appliedEffort,
