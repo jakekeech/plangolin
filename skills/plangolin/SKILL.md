@@ -22,7 +22,26 @@ nobody asked, and the answer will send you somewhere else anyway.
 One sentence is enough to start: *"a marketplace for secondhand textbooks"* or
 *"add rate limiting to the API"*.
 
-**1. Plan it the way you normally would.**
+**1. Start preparing the system map.**
+
+Run this before reading code or planning:
+
+```bash
+plangolin prepare
+```
+
+It starts project-map preparation and returns immediately. Continue planning;
+do not wait for it. If `plangolin` is not on the PATH, use the copy installed
+with this plugin:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" prepare
+```
+
+If preparation is unavailable or fails, continue with a cold review as the
+product supports.
+
+**2. Plan it the way you normally would.**
 
 Read the code first if there is any. Write the plan you would have written
 anyway — same depth, same judgement. Do not write a thinner plan because
@@ -47,13 +66,13 @@ has actually happened.
 Ask only about things a diagram cannot show — a constraint you have no way to
 observe, or a goal the request is genuinely ambiguous about.
 
-**2. Save the plan to a file.**
+**3. Save the plan to a file.**
 
 Write it as markdown. `plangolin/PLAN.md` in the project is a good default. If
 you have already written the plan to a file — a spec, a plan document — use
 that path and do not write it twice.
 
-**3. Tell the user where to look, then run the review and wait for it.**
+**4. Tell the user where to look, then run the review and wait for it.**
 
 Say this first, on its own line, before you run anything:
 
@@ -85,17 +104,23 @@ poll it, and do not carry on while it runs.
 If the command is not found, tell the user plangolin is not installed and offer
 to continue without the review rather than stopping.
 
-**4. Do what it says.**
+**5. Do what it says.**
 
 It prints the agreed scope. Read it carefully:
 
-- **BUILD** — build these, where it says they live
-- **UPDATE** — these existing parts change
-- **OUT OF SCOPE** — the user removed these. **Do not build them.** This is the
-  most important section, and the reason the review exists: without it a
-  rejection would leave no trace at all, and would be indistinguishable from
-  something nobody thought of.
-- **DO NOT TOUCH** — leave these alone
+- **BUILD** — accepted structural additions and new connections
+- **REMOVE** — accepted component removals and disconnections
+- **UPDATE RESPONSIBILITY** — accepted changes to existing component roles
+- **INTERNAL WORK** — accepted internal changes, grouped by component
+- **SUPPORTING WORK** — accepted support changes, grouped by component or
+  project
+- **OUT OF SCOPE** — every rejected impact with its original steps. **Do not
+  build these.** This is the most important section: it makes every rejection
+  a continuing instruction rather than an absence of discussion.
+- **NEEDS REVIEW** — accepted unresolved steps. Confirm the intended component
+  before inferring missing scope.
+- **DO NOT TOUCH** — unaffected existing components; preserve their current
+  behavior
 
 **These constraints hold for the rest of the session, not just the next
 message.** If, forty turns into the implementation, something in OUT OF SCOPE
@@ -104,12 +129,12 @@ starts to look necessary, say so and ask — never quietly build it.
 If it says the review was skipped or not completed in time, proceed with the
 plan as written. That is a real answer, not a failure.
 
-**5. Revise and present.**
+**6. Revise and present.**
 
 Rewrite the plan so it matches what was agreed, then present it for approval
 the way you normally would.
 
-## When the sheet is empty
+## When the system map is empty
 
 A brand-new project has no diagram yet, so every part of the plan will appear
 as something to add. That is correct and needs no special handling.
