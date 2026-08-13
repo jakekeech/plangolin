@@ -79,7 +79,7 @@ export async function runReview(root, planText, {
   note("  Review this plan at:");
   note(`      ${url}`);
   note("");
-  note("  Reading it against your sheet… the page fills in on its own.");
+  note("  Preparing the plan against your system map. The page fills in on its own.");
   note("  This command waits here until you press Approve or Skip.");
   note("");
   open(url);

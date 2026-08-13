@@ -61,6 +61,23 @@ test("approving prints a brief and exits 0", async () => {
   assert.match(brief, /Reviewed in plangolin/);
 });
 
+test("the review loading note calls the project a system map", async () => {
+  const root = await project();
+  const holder = {};
+  const writes = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (text) => { writes.push(String(text)); return true; };
+  try {
+    const open = (url) => { holder.url = url; approveVia(holder, [])(); };
+    await runReview(root, "1. Add a limiter\n", {
+      open, timeout: 2_000, plans: reviewableStore(), port: 0,
+    });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  assert.match(writes.join(""), /Preparing the plan against your system map\./);
+});
+
 // A forgotten browser tab must not strand the session. Proceeding as written
 // is the same outcome the user would have had without plangolin at all.
 test("no decision inside the window still returns, saying so", async () => {
