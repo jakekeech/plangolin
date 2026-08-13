@@ -3,8 +3,7 @@
    browser and Node tests consume the same immutable projection. */
 
 const list = (value) => Array.isArray(value) ? value : [];
-const namespacePart = (value) =>
-  encodeURIComponent(String(value || "")).replace(/%3A/gi, ":");
+const namespacePart = (value) => encodeURIComponent(String(value || ""));
 const parentOf = (node) => node && node.parent ? node.parent : null;
 
 function impactBase(reviewId, impactKey) {

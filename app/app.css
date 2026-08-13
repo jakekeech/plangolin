@@ -1253,6 +1253,15 @@
     outline: 3px solid color-mix(in oklab, var(--plan) 38%, transparent);
     outline-offset: 3px;
   }
+  .plan-node-action {
+    display: block; width: 100%; padding: 0; border: 0; border-radius: 3px;
+    background: transparent; color: inherit; text-align: left; cursor: inherit;
+    font: inherit;
+  }
+  .plan-node-action:focus-visible {
+    outline: 3px solid var(--plan); outline-offset: 3px;
+  }
+  .plan-node-action .node-name, .plan-node-action .node-intent { display: block; }
   .node.plan-removal[data-removal-cut="false"] {
     opacity: .62; border-color: var(--plan-cut); box-shadow: 0 3px 0 var(--plan-cut);
   }

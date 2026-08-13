@@ -1,13 +1,25 @@
 import { generatedPositions, layeredPositions, proposalPositions } from "./graph-layout.js";
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import {
-  acceptedImpactKeys,
   buildPlanProjection,
   planViewNodes,
   recursiveImpactCounts,
   setImpactDecision,
   temporaryChildren,
 } from "./plan-projection.js";
+import {
+  applyReviewRevision,
+  applyTemporaryNodeAccessibility,
+  buildPersistedSavePayload,
+  buildPlanResolvePayload,
+  handleTemporaryActivation,
+  navigatePlanState,
+  normalizePlanNavigation,
+  persistentGraphActionAllowed,
+  planEvidenceHtml,
+  projectedEdgeEndpoints,
+  restoreTemporaryFocus,
+} from "./plan-interaction.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
 (function () {
@@ -611,6 +623,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   let plan = null;
   let planCut = new Set();          // proposal keys the user has crossed out
   let planAt = 0;                   // which proposal the stepper is showing
+  let planSelectedId = null;        // focused/selected temporary representation
   let planSending = false;          // an answer is in flight; see sendAnswer
   let planProjection = { reviewId: "", nodes: [], edges: [], annotations: {
     removals: [], responsibilities: [], disconnections: [],
@@ -677,11 +690,22 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function syncPlanProjection() {
     const reviewable = plan && (plan.status === "ready" || plan.status === "partial");
-    planProjection = reviewable
+    const previousProjection = planProjection;
+    const nextProjection = reviewable
       ? buildPlanProjection(plan, S.nodes, S.edges)
       : { reviewId: "", nodes: [], edges: [], annotations: {
           removals: [], responsibilities: [], disconnections: [],
         } };
+    const navigation = normalizePlanNavigation({
+      viewRoot,
+      selectedId: planSelectedId,
+      previousProjection,
+      projection: nextProjection,
+      persistedNodes: S.nodes,
+    });
+    viewRoot = navigation.viewRoot;
+    planSelectedId = navigation.selectedId;
+    planProjection = nextProjection;
     planImpactCounts = recursiveImpactCounts(planProjection, S.nodes);
   }
 
@@ -1744,7 +1768,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       fetch("/api/doc", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(toDoc(S)),
+        body: JSON.stringify(buildPersistedSavePayload(toDoc(S), planProjection)),
       }).catch(function (e) { console.warn("could not save:", e.message); });
     }, 400);
   }
@@ -1850,9 +1874,8 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function renderTemporaryNode(n, position) {
     if (!position) return;
-    const active = planStepList()[planAt];
     const cut = !!n.impactKey && planCut.has(n.impactKey);
-    const selected = !!n.impactKey && !!active && active.key === n.impactKey;
+    const selected = planSelectedId === n.id;
     const enterable = n.planType !== "card" && hasViewChildren(n.id);
     const typeClass = n.planType === "card" ? " plan-card" :
       n.planType === "group" ? " plan-group" : " plan-addition";
@@ -1867,9 +1890,6 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (n.impactKey) el.dataset.impactKey = n.impactKey;
     el.style.left = position.x + "px";
     el.style.top = position.y + "px";
-    el.tabIndex = 0;
-    el.setAttribute("role", "group");
-    el.setAttribute("aria-label", (n.cardKind || n.kind || "Plan item") + ": " + n.name);
     const k = iconFor(n.kind || "");
     const count = planImpactCounts.get(n.id) || 0;
     const controls = n.impactKey
@@ -1879,12 +1899,20 @@ import { createRolledLoader } from "./rolled-loader.js";
           '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(n.impactKey) +
             '" aria-pressed="' + String(cut) + '">Cut</button></span>'
       : "";
-    el.innerHTML =
-      (count ? '<span class="plan-count">' + count + ' planned change' + (count === 1 ? "" : "s") + '</span>' : "") +
-      '<div class="node-top">' + (n.planType === "card" ? "" : k.icon) +
-        '<span class="node-kind">' + esc(n.cardKind || (n.kind || "").trim() || k.label) + "</span></div>" +
-      '<div class="node-name">' + esc(n.name) + "</div>" +
-      '<div class="node-intent">' + esc(n.intent || "") + "</div>" + controls;
+    el.innerHTML = count
+      ? '<span class="plan-count">' + count + ' planned change' + (count === 1 ? "" : "s") + "</span>"
+      : "";
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "plan-node-action";
+    applyTemporaryNodeAccessibility(action, n, { enterable, selected });
+    action.innerHTML =
+      '<span class="node-top">' + (n.planType === "card" ? "" : k.icon) +
+        '<span class="node-kind">' + esc(n.cardKind || (n.kind || "").trim() || k.label) + "</span></span>" +
+      '<span class="node-name">' + esc(n.name) + "</span>" +
+      '<span class="node-intent">' + esc(n.intent || "") + "</span>";
+    el.appendChild(action);
+    if (controls) el.insertAdjacentHTML("beforeend", controls);
     world.appendChild(el);
   }
 
@@ -2497,16 +2525,6 @@ import { createRolledLoader } from "./rolled-loader.js";
     return text.length > SAID_CHARS ? text.slice(0, SAID_CHARS - 1).trimEnd() + "…" : text;
   }
 
-  function planEvidenceHtml(s) {
-    const row = (label, values, render) => values.length
-      ? '<div class="plan-evidence-row"><span class="plan-files-label">' + label + '</span>' +
-        values.map(render).join("") + "</div>" : "";
-    return row("Plan steps", s.stepTexts || [], (step) =>
-      '<p><b>' + step.number + '.</b> ' + esc(step.text) + "</p>") +
-      row("Files", s.files || [], (file) => '<p><code>' + esc(file) + "</code></p>") +
-      row("Symbols", s.symbols || [], (symbol) => '<p><code>' + esc(symbol) + "</code></p>");
-  }
-
   /* What this proposal is, in a sentence, before any of its detail. "calls
      into" on its own is a label for a line, not a description of a change. */
   /* What is happening, in the words someone would use out loud.
@@ -2811,22 +2829,30 @@ import { createRolledLoader } from "./rolled-loader.js";
     grip.addEventListener("pointercancel", land);
   })();
 
-  function planDecide(cutIt, impactKey) {
+  function redrawPlanWithFocus(focusId) {
+    renderPlan();
+    drawPlan();
+    if (focusId) requestAnimationFrame(() => restoreTemporaryFocus(world, focusId));
+  }
+
+  function planDecide(cutIt, impactKey, focusId) {
     const list = planStepList();
     const s = list[planAt];
     impactKey = impactKey || (s && !s.summary ? s.key : "");
     if (!impactKey) return;
+    const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
+    if (index >= 0) planAt = index;
+    if (focusId) planSelectedId = focusId;
     planCut = setImpactDecision(planCut, impactKey, cutIt);
-    renderPlan();
-    drawPlan();
+    redrawPlanWithFocus(focusId);
   }
 
-  function selectPlanImpact(impactKey) {
+  function selectPlanImpact(impactKey, representationId) {
     const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
     if (index < 0) return;
     planAt = index;
-    renderPlan();
-    drawPlan();
+    planSelectedId = representationId || null;
+    redrawPlanWithFocus(representationId);
   }
 
   function planGo(delta) {
@@ -2894,11 +2920,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out || out.ok === false) throw new Error("refused");
-      const here = viewNode(viewRoot);
-      const planOnlyView = !!viewRoot && !childrenOf(viewRoot).length &&
-        temporaryChildren(planProjection, viewRoot).length > 0;
       plan = null; movedGhosts.clear();
-      if (planOnlyView) viewRoot = here && here.parent ? here.parent : null;
       syncPlanProjection(); renderPlan(); drawPlan();
       handOff(sent);
     } catch {
@@ -2926,15 +2948,12 @@ import { createRolledLoader } from "./rolled-loader.js";
   document.getElementById("plan-approve").addEventListener("click", () => {
     if (!plan) return;
     const all = (plan.impacts || []).map((impact) => impact.key);
-    const accepted = acceptedImpactKeys(plan, planCut);
-    sendAnswer({
-      id: plan.id,
-      accepted,
-      nodes: S.nodes.map((n) => ({ id: n.id, name: n.name, intent: n.intent })),
-    }, { kept: accepted.length, cut: all.length - accepted.length });
+    const body = buildPlanResolvePayload(plan, planCut, S.nodes, planProjection);
+    sendAnswer(body, { kept: body.accepted.length, cut: all.length - body.accepted.length });
   });
 
-  /* The review this browser has already drawn, as id and status. Compared
+  /* The review revision this browser has already drawn, as id, status, and
+     monotonic revision. Compared
      against rather than against `plan` itself, because a review that has been
      answered leaves `plan` null while the server goes on reporting it — and
      "different from null" would then be true on every poll for the rest of
@@ -2944,33 +2963,36 @@ import { createRolledLoader } from "./rolled-loader.js";
   async function pollPlan() {
     try {
       const { review } = await fetch("/api/plan").then((r) => r.json());
-      const stamp = review ? review.id + ":" + review.status : "";
-      const wasThinking = !!plan && plan.status === "thinking";
-      const newReview = !!review && (!plan || plan.id !== review.id);
-      if (stamp === planSeen) return;
-      planSeen = stamp;
-      // Proposal ids can recur in a later review; carrying a coordinate across
-      // that boundary would make a new proposal inherit an old decision.
-      if (newReview) { movedGhosts.clear(); planCut = new Set(); planAt = 0; }
-      // A review that has been answered is over: it stays on the server so the
-      // command waiting on it can read the brief, but there is nothing left to
-      // show and reopening the panel over a decision already sent would be a
-      // question asked twice.
-      plan = review && (review.status === "thinking" || review.status === "ready" || review.status === "partial")
-        ? review : null;
-      // A new review starts with everything accepted. Rejecting is the
-      // deliberate act; requiring a click per block to approve a plan you
-      // agree with would make the common case the expensive one.
-      /* thinking -> ready is when the panel gains its content and the sheet
-         gains its ghosts. Both change what a fit should produce, so this is
-         the moment to compute one. */
-      if (plan && (plan.status === "ready" || plan.status === "partial") && wasThinking) fitAfterSettling();
-      // A second review means the session came back here, so the note telling
-      // them to leave has been answered by events.
-      if (plan) { clearHandoff(); setPlanOpen(true); }
-      syncPlanProjection();
-      renderPlan();
-      drawPlan();
+      const update = applyReviewRevision(planSeen, review, () => {
+        const wasThinking = !!plan && plan.status === "thinking";
+        const newReview = !!review && (!plan || plan.id !== review.id);
+        // Proposal ids can recur in a later review; carrying a coordinate across
+        // that boundary would make a new proposal inherit an old decision.
+        if (newReview) {
+          movedGhosts.clear(); planCut = new Set(); planAt = 0; planSelectedId = null;
+        }
+        // A review that has been answered is over: it stays on the server so the
+        // command waiting on it can read the brief, but there is nothing left to
+        // show and reopening the panel over a decision already sent would be a
+        // question asked twice.
+        plan = review && (review.status === "thinking" || review.status === "ready" || review.status === "partial")
+          ? review : null;
+        // A new review starts with everything accepted. Rejecting is the
+        // deliberate act; requiring a click per block to approve a plan you
+        // agree with would make the common case the expensive one.
+        /* thinking -> ready is when the panel gains its content and the sheet
+           gains its ghosts. Both change what a fit should produce, so this is
+           the moment to compute one. */
+        if (plan && (plan.status === "ready" || plan.status === "partial") && wasThinking) fitAfterSettling();
+        // A second review means the session came back here, so the note telling
+        // them to leave has been answered by events.
+        if (plan) { clearHandoff(); setPlanOpen(true); }
+        syncPlanProjection();
+        renderPlan();
+        drawPlan();
+      });
+      if (!update.changed) return;
+      planSeen = update.stamp;
     } catch { /* the server is restarting, or gone. Ask again shortly. */ }
   }
   /* Started by boot rather than at parse. The panel names the blocks a plan
@@ -2990,8 +3012,8 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (planToggle) {
       ev.preventDefault(); ev.stopPropagation();
       const impactKey = planToggle.dataset.impactKey;
-      selectPlanImpact(impactKey);
-      planDecide(planToggle.dataset.planToggle === "cut", impactKey);
+      const owner = planToggle.closest(".node");
+      planDecide(planToggle.dataset.planToggle === "cut", impactKey, owner && owner.dataset.id);
       return;
     }
     if (ev.target.closest("#name-btn")) { nameTheChanges(); return; }
@@ -3195,10 +3217,9 @@ import { createRolledLoader } from "./rolled-loader.js";
        restores the ordinary line underneath. */
     if (plan && (plan.status === "ready" || plan.status === "partial")) {
       for (const disconnection of planProjection.annotations.disconnections) {
-        const from = levelAncestor(disconnection.from);
-        const to = levelAncestor(disconnection.to);
-        if (!from || !to || from === to) continue;
-        const a = viewNode(from), b = viewNode(to);
+        const visible = projectedEdgeEndpoints(disconnection, viewRoot, S.nodes, planProjection);
+        if (!visible) continue;
+        const a = viewNode(visible.from), b = viewNode(visible.to);
         const p = between(a, b);
         if (!p) continue;
         const attrs = {
@@ -3232,7 +3253,9 @@ import { createRolledLoader } from "./rolled-loader.js";
         return here ? viewNode(here) : null;
       };
       for (const c of planProjection.edges) {
-        const a = end(c.from), b = end(c.to);
+        const visible = projectedEdgeEndpoints(c, viewRoot, S.nodes, planProjection);
+        if (!visible) continue;
+        const a = end(visible.from), b = end(visible.to);
         if (!a || !b || a.id === b.id) continue;
         const p = between(a, b);
         if (!p) continue;
@@ -4139,7 +4162,12 @@ import { createRolledLoader } from "./rolled-loader.js";
      instead of inventing a second vocabulary. */
   function goToView(id) {
     camByView.set(viewRoot || "", { x: pan.x, y: pan.y, z: zoom });
-    viewRoot = id || null;
+    const navigation = navigatePlanState({
+      viewRoot, selectedId: planSelectedId, cutKeys: planCut,
+    }, id);
+    viewRoot = navigation.viewRoot;
+    planSelectedId = navigation.selectedId;
+    planCut = navigation.cutKeys;
     render();                          // from here, currentLevelNodes() is the new level
     // Where you left it wins over where the content is: a view you have
     // already arranged is a view you recognise.
@@ -4234,14 +4262,19 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function applyAction(act) {
     if (!act) return;
-    if (viewRoot && temporaryNode(viewRoot)) return;
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [] }, S.nodes, planProjection)) return;
 
-    if (act.kind === "select") { select("node", act.target); focusIntent(); return; }
+    if (act.kind === "select") {
+      if (!persistentGraphActionAllowed({ viewRoot, ids: [act.target] }, S.nodes, planProjection)) return;
+      select("node", act.target); focusIntent(); return;
+    }
     if (act.kind === "selectEdge") { select("edge", act.target); return; }
 
     if (act.wire) { connect(act.wire.from, act.wire.to, act.wire.label); render(); return; }
 
     if (act.group) {
+      const members = [...(act.group.ids || []), act.group.near].filter(Boolean);
+      if (!persistentGraphActionAllowed({ viewRoot, ids: members }, S.nodes, planProjection)) return;
       const spot = freeSpot(act.group.near);
       const g = {
         id: slug(act.group.name, nodeIds()), kind: "Group", name: act.group.name,
@@ -4266,6 +4299,9 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     if (act.add) {
       const a = act.add;
+      if (!persistentGraphActionAllowed({
+        viewRoot, ids: a.from ? [a.from] : [],
+      }, S.nodes, planProjection)) return;
       const spot = freeSpot(a.from);
       const n = { id: slug(a.name, nodeIds()), kind: (KINDS[a.kind] || {}).label || a.kind,
                   name: a.name, intent: a.intent, x: spot.x, y: spot.y };
@@ -4278,7 +4314,9 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function connect(from, to, label, transient) {
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [from, to] }, S.nodes, planProjection)) return false;
     applyMove({ t: "connect", from: from, to: to, label: label || "" }, { transient: !!transient });
+    return true;
   }
 
   function select(type, id, opts) {
@@ -4424,7 +4462,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function dropKind(kind, x, y) {
-    if (viewRoot && temporaryNode(viewRoot)) return;
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [] }, S.nodes, planProjection)) return;
     const n = { id: slug(KINDS[kind].label, nodeIds()), kind: KINDS[kind].label,
                 name: KINDS[kind].label, intent: "", x: Math.round(x), y: Math.round(y) };
     if (viewRoot) n.parent = viewRoot;
@@ -4495,6 +4533,7 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     const portEl = ev.target.closest(".port");
     const nodeEl = ev.target.closest(".node");
+    const planActionEl = ev.target.closest("[data-plan-action]");
     const r = canvas.getBoundingClientRect();
     const wx = toWorldX(ev.clientX - r.left);
     const wy = toWorldY(ev.clientY - r.top);
@@ -4525,15 +4564,15 @@ import { createRolledLoader } from "./rolled-loader.js";
     }
 
     if (nodeEl && nodeEl.dataset.planType) {
-      const now = Date.now();
-      if (lastNodeClick && lastNodeClick.id === nodeEl.dataset.id &&
-          now - lastNodeClick.time < DBLCLICK_MS && nodeEl.dataset.enterable === "true") {
-        lastNodeClick = null;
-        enterNode(nodeEl.dataset.id);
-        return;
-      }
-      lastNodeClick = { id: nodeEl.dataset.id, time: now };
-      if (nodeEl.dataset.impactKey) selectPlanImpact(nodeEl.dataset.impactKey);
+      if (!planActionEl) return;
+      const activation = handleTemporaryActivation(ev, planActionEl, {
+        now: Date.now(), lastClick: lastNodeClick,
+      }, {
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+      });
+      lastNodeClick = activation.lastClick;
+      if (activation.action === "enter") return;
       if (nodeEl.dataset.proposed !== "true") return;
       const p = ghostAt.get(nodeEl.dataset.id);
       if (!p) return;
@@ -4658,6 +4697,16 @@ import { createRolledLoader } from "./rolled-loader.js";
        a third in the masthead, because a way out that you have to remember
        is not a way out for the person who most needs one. */
     const typing = ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA";
+    const planAction = ev.target.closest && ev.target.closest("[data-plan-action]");
+    if (!typing && planAction) {
+      const activation = handleTemporaryActivation(ev, planAction, {
+        lastClick: lastNodeClick,
+      }, {
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+      });
+      if (activation.handled) return;
+    }
     const focusedNode = ev.target.classList && ev.target.classList.contains("node") ? ev.target : null;
     if (!typing && ev.key === "Enter" && focusedNode) {
       ev.preventDefault();
@@ -4686,6 +4735,13 @@ import { createRolledLoader } from "./rolled-loader.js";
     const t = ev.target.tagName;
     if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
     if (!S.sel) return;
+    if (S.sel.type === "node" && !persistentGraphActionAllowed({
+      viewRoot, ids: [S.sel.id],
+    }, S.nodes, planProjection)) {
+      S.sel = null;
+      render();
+      return;
+    }
     ev.preventDefault();
     applyMove(S.sel.type === "node"
       ? { t: "removeNode", id: S.sel.id }

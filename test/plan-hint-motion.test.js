@@ -62,17 +62,15 @@ test("the browser consumes the impact projection instead of legacy deltas", () =
 
 test("temporary hierarchy reuses viewRoot navigation without resetting decisions", () => {
   assert.match(functionSource(APP, "enterNode"), /hasViewChildren\(id\)/);
-  assert.match(functionSource(APP, "goToView"), /viewRoot = id \|\| null/);
-  assert.doesNotMatch(functionSource(APP, "goToView"), /planCut\s*=/);
-  assert.match(APP, /nodeEl\.dataset\.enterable === "true"/);
-  assert.match(APP, /ev\.key === "Enter"/);
-  assert.match(APP, /enterNode\(nodeEl\.dataset\.id\)/);
+  assert.match(functionSource(APP, "goToView"), /navigatePlanState/);
+  assert.match(APP, /handleTemporaryActivation/);
 });
 
 test("temporary cards are focusable plan controls with no ports", () => {
   const renderer = functionSource(APP, "renderTemporaryNode");
   assert.match(renderer, /plan-card/);
-  assert.match(renderer, /tabIndex = 0/);
+  assert.match(renderer, /plan-node-action/);
+  assert.match(renderer, /applyTemporaryNodeAccessibility/);
   assert.match(renderer, /data-plan-toggle/);
   assert.match(renderer, /data-impact-key/);
   assert.doesNotMatch(renderer, /class="port"/);
@@ -85,21 +83,28 @@ test("temporary cards are focusable plan controls with no ports", () => {
 
 test("the plan panel renders literal cited steps, files, and symbols", () => {
   assert.match(HTML, /id="plan-evidence"/);
-  const evidence = functionSource(APP, "planEvidenceHtml");
-  assert.match(evidence, /Plan steps/);
-  assert.match(evidence, /Files/);
-  assert.match(evidence, /Symbols/);
-  assert.match(evidence, /stepTexts/);
-  assert.match(evidence, /s\.files/);
-  assert.match(evidence, /s\.symbols/);
-  assert.doesNotMatch(evidence, /createElement/);
+  assert.match(APP, /evidence\.innerHTML = planEvidenceHtml\(s\)/);
 });
 
 test("stepper, cards, annotations, and edges decide by the same impact key", () => {
   const decide = functionSource(APP, "planDecide");
   assert.match(decide, /setImpactDecision\(planCut, impactKey, cutIt\)/);
   assert.match(functionSource(APP, "selectPlanImpact"), /impact\.key === impactKey/);
-  assert.match(APP, /acceptedImpactKeys\(plan, planCut\)/);
+  assert.match(APP, /buildPlanResolvePayload\(plan, planCut, S\.nodes, planProjection\)/);
   assert.match(APP, /data-impact-key/);
   assert.match(APP, /dataset\.impactKey/);
+});
+
+test("the browser wires behavioral plan helpers into every critical IIFE boundary", () => {
+  assert.match(APP, /from "\.\/plan-interaction\.js"/);
+  assert.match(functionSource(APP, "persist"), /buildPersistedSavePayload/);
+  assert.match(functionSource(APP, "syncPlanProjection"), /normalizePlanNavigation/);
+  assert.match(functionSource(APP, "renderTemporaryNode"), /applyTemporaryNodeAccessibility/);
+  assert.match(functionSource(APP, "renderWires"), /projectedEdgeEndpoints/);
+  assert.match(functionSource(APP, "pollPlan"), /applyReviewRevision/);
+  assert.match(functionSource(APP, "goToView"), /navigatePlanState/);
+  assert.match(functionSource(APP, "connect"), /persistentGraphActionAllowed/);
+  assert.match(APP, /buildPlanResolvePayload/);
+  assert.match(APP, /handleTemporaryActivation/);
+  assert.match(APP, /restoreTemporaryFocus/);
 });

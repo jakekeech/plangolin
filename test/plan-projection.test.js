@@ -83,7 +83,7 @@ test("system additions and proposed connections project at the root", () => {
   const projection = buildPlanProjection(review("review-a", [system]), NODES, EDGES);
   const addition = projection.nodes.find((node) => node.planType === "addition");
 
-  assert.match(addition.id, /^plan:review-a:impact:2:addition:limiter$/);
+  assert.match(addition.id, /^plan:review-a:impact%3A2:addition:limiter$/);
   assert.equal(addition.parent, null);
   assert.equal(addition.sourceId, "limiter");
   assert.equal(addition.impactKey, "impact:2");
@@ -238,6 +238,59 @@ test("projection ids cannot collide across reviews", () => {
   const second = new Set(ids(buildPlanProjection(review("review-b", impacts), NODES, EDGES)));
 
   assert.equal([...first].some((id) => second.has(id)), false);
+});
+
+test("projection ids keep adversarial review, impact, and operation components collision-safe and stable", () => {
+  const cases = [
+    { reviewId: "r", impactKey: "a:b", additionId: "node", expected: "plan:r:a%3Ab:addition:node" },
+    { reviewId: "r:a", impactKey: "b", additionId: "node", expected: "plan:r%3Aa:b:addition:node" },
+    { reviewId: "r", impactKey: "a", additionId: "b:addition:node", expected: "plan:r:a:addition:b%3Aaddition%3Anode" },
+    { reviewId: "%", impactKey: "/", additionId: "雪", expected: "plan:%25:%2F:addition:%E9%9B%AA" },
+    { reviewId: "%25", impactKey: "%2F", additionId: "%E9%9B%AA", expected: "plan:%2525:%252F:addition:%25E9%259B%25AA" },
+  ];
+
+  const projected = cases.map(({ reviewId, impactKey, additionId }) => buildPlanProjection(
+    review(reviewId, [impact({
+      key: impactKey,
+      level: "system",
+      targetId: "",
+      additions: [{
+        id: additionId, name: "Adversarial", kind: "Module", intent: "Stays distinct.", dir: "", files: [],
+      }],
+      connections: [{ from: "api", to: additionId, label: "uses" }],
+      removals: [{ id: "database" }],
+      responsibilities: [{ id: "api", intent: "Stays safe.", why: "Exercises ids." }],
+      disconnections: [{ from: "api", to: "database" }],
+    })]),
+    NODES,
+    EDGES,
+  ));
+  const everyId = projected.flatMap(ids);
+
+  assert.deepEqual(
+    projected.map((projection) => projection.nodes.find((node) => node.planType === "addition").id),
+    cases.map(({ expected }) => expected),
+  );
+  assert.equal(new Set(everyId).size, everyId.length);
+  assert.deepEqual(
+    projected.map(ids),
+    cases.map(({ reviewId, impactKey, additionId }) => ids(buildPlanProjection(
+      review(reviewId, [impact({
+        key: impactKey,
+        level: "system",
+        targetId: "",
+        additions: [{
+          id: additionId, name: "Adversarial", kind: "Module", intent: "Stays distinct.", dir: "", files: [],
+        }],
+        connections: [{ from: "api", to: additionId, label: "uses" }],
+        removals: [{ id: "database" }],
+        responsibilities: [{ id: "api", intent: "Stays safe.", why: "Exercises ids." }],
+        disconnections: [{ from: "api", to: "database" }],
+      })]),
+      NODES,
+      EDGES,
+    ))),
+  );
 });
 
 test("building and querying a projection leaves persisted review and graph bytes untouched", () => {
