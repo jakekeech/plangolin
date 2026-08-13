@@ -117,3 +117,25 @@ test("an unsupported impact endpoint is a service-version error without plan fal
   assert.match(urls[0], /\/v1\/impact$/);
   assert.ok(urls.every((url) => !url.endsWith("/v1/plan")));
 });
+
+test("a non-JSON impact 404 still carries the service-version recovery message", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("Not Found", {
+    status: 404,
+    headers: { "content-type": "text/plain" },
+  });
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  await assert.rejects(
+    callTask({ task: "impact", prompt: "review" }),
+    (error) => {
+      assert.equal(error.userFacing, true);
+      assert.equal(error.serviceVersion, true);
+      assert.equal(
+        error.message,
+        "This Plangolin service does not support impact review yet. Retry after it updates, or skip this review.",
+      );
+      return true;
+    },
+  );
+});

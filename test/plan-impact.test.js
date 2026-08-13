@@ -313,6 +313,22 @@ test("diagnoses blank titles, oversized strings, and out-of-range step numbers",
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "invalid_step"));
 });
 
+test("scrubs nonnumeric invalid step values from diagnostics", () => {
+  const privatePlanText = "Deploy the customer-only launch sequence";
+  const result = validate([impact({ steps: [2, privatePlanText, { text: privatePlanText }] })], {
+    steps: [STEPS[1]],
+  });
+
+  assert.doesNotMatch(JSON.stringify(result.diagnostics), /customer-only launch sequence/);
+  assert.deepEqual(
+    result.diagnostics.issues.filter((issue) => issue.code === "invalid_step"),
+    [
+      { code: "invalid_step", sourceIndex: 0, stepType: "string" },
+      { code: "invalid_step", sourceIndex: 0, stepType: "object" },
+    ],
+  );
+});
+
 test("assigns stable client keys in preserved final order", () => {
   const raw = { impacts: [
     impact({ title: "First", steps: [1] }),

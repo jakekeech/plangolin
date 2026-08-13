@@ -102,7 +102,10 @@ function validateSteps(values, validSteps, diagnostics, sourceIndex) {
   const result = [];
   for (const value of list(values)) {
     if (!Number.isInteger(value) || !validSteps.has(value)) {
-      diagnostics.issues.push({ code: "invalid_step", sourceIndex, step: value });
+      const issue = { code: "invalid_step", sourceIndex };
+      if (typeof value === "number" && Number.isFinite(value)) issue.step = value;
+      else issue.stepType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+      diagnostics.issues.push(issue);
       continue;
     }
     if (!result.includes(value)) result.push(value);
