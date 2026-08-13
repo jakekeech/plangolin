@@ -168,9 +168,13 @@ export async function callTask({ task, prompt }) {
   catch { throw new Error(`plangolin's service returned ${res.status} with an unreadable body.`); }
 
   if (!res.ok) {
-    const e = new Error(data.error || `plangolin's service returned ${res.status}.`);
+    const unsupportedImpact = task === "impact" && res.status === 404;
+    const e = new Error(unsupportedImpact
+      ? "This Plangolin service does not support impact review yet. Retry after it updates, or skip this review."
+      : data.error || `plangolin's service returned ${res.status}.`);
     e.userFacing = true;
     if (res.status === 429) e.rateLimited = true;
+    if (unsupportedImpact) e.serviceVersion = true;
     throw e;
   }
 
