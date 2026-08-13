@@ -16,7 +16,7 @@ import {
   restorePlanFocus,
   selectTemporaryPlanState,
 } from "../app/plan-interaction.js";
-import { setImpactDecision } from "../app/plan-projection.js";
+import { buildPlanProjection, setImpactDecision } from "../app/plan-projection.js";
 
 class FakeElement {
   constructor() {
@@ -325,7 +325,7 @@ test("a Space-synthesized click activates a temporary card exactly once", () => 
   assert.equal(activationCount, 1);
 });
 
-test("a Space-synthesized click opens an enterable temporary node exactly once", () => {
+test("a Space-synthesized click selects an enterable temporary node without opening it", () => {
   const addition = new FakeElement();
   applyTemporaryNodeAccessibility(addition, {
     id: "plan:review-1:impact%3A1:addition:limiter",
@@ -347,9 +347,97 @@ test("a Space-synthesized click opens an enterable temporary node exactly once",
   }, callbacks);
 
   assert.equal(keyResult.handled, false);
-  assert.equal(clickResult.action, "enter");
-  assert.equal(enterCount, 1);
-  assert.equal(selectCount, 0);
+  assert.equal(clickResult.action, "select");
+  assert.equal(enterCount, 0);
+  assert.equal(selectCount, 1);
+});
+
+test("a single pointer click selects a temporary root group without entering it", () => {
+  const group = new FakeElement();
+  applyTemporaryNodeAccessibility(group, {
+    id: "plan:review-1:group:project-support",
+    planType: "group",
+    name: "Project Support",
+  }, { enterable: true, selected: false });
+  const focused = [];
+  const selected = [];
+  const entered = [];
+  const callbacks = {
+    focus: (_impactKey, id) => focused.push(id),
+    enter: (id) => entered.push(id),
+    selectRepresentation: (id) => selected.push(id),
+    select() { throw new Error("a group has no impact to select"); },
+  };
+
+  const pressed = handleTemporaryActivation({ type: "mousedown" }, group, {
+    now: 1000, lastClick: null,
+  }, callbacks);
+  const clicked = handleTemporaryActivation({ type: "click", detail: 1 }, group, {
+    now: 1000, lastClick: pressed.lastClick,
+  }, callbacks);
+
+  assert.deepEqual(focused, [group.dataset.planId]);
+  assert.deepEqual(selected, [group.dataset.planId]);
+  assert.deepEqual(entered, []);
+  assert.equal(clicked.action, "select");
+  assert.deepEqual(clicked.lastClick, { id: group.dataset.planId, time: 1000 });
+});
+
+test("a double pointer click enters a temporary root group exactly once", () => {
+  const group = new FakeElement();
+  applyTemporaryNodeAccessibility(group, {
+    id: "plan:review-1:group:needs-review",
+    planType: "group",
+    name: "Needs Review",
+  }, { enterable: true, selected: false });
+  const entered = [];
+  const callbacks = {
+    focus() {},
+    enter: (id) => entered.push(id),
+    select() { throw new Error("a group has no impact to select"); },
+  };
+
+  const firstPress = handleTemporaryActivation({ type: "mousedown" }, group, {
+    now: 1000, lastClick: null,
+  }, callbacks);
+  const firstClick = handleTemporaryActivation({ type: "click", detail: 1 }, group, {
+    now: 1000, lastClick: firstPress.lastClick,
+  }, callbacks);
+  const secondPress = handleTemporaryActivation({ type: "mousedown" }, group, {
+    now: 1200, lastClick: firstClick.lastClick,
+  }, callbacks);
+  const secondClick = handleTemporaryActivation({
+    type: "click", detail: 2, preventDefault() {},
+  }, group, {
+    now: 1200, lastClick: secondPress.lastClick,
+  }, callbacks);
+
+  assert.deepEqual(entered, [group.dataset.planId]);
+  assert.equal(secondClick.action, "enter");
+  assert.equal(secondClick.lastClick, null);
+});
+
+test("Enter opens a temporary root group exactly once", () => {
+  const group = new FakeElement();
+  applyTemporaryNodeAccessibility(group, {
+    id: "plan:review-1:group:project-support",
+    planType: "group",
+    name: "Project Support",
+  }, { enterable: true, selected: false });
+  const entered = [];
+  const event = {
+    type: "keydown", key: "Enter", prevented: false,
+    preventDefault() { this.prevented = true; },
+  };
+  const result = handleTemporaryActivation(event, group, {}, {
+    focus() {},
+    enter: (id) => entered.push(id),
+    select() {},
+  });
+
+  assert.equal(event.prevented, true);
+  assert.equal(result.action, "enter");
+  assert.deepEqual(entered, [group.dataset.planId]);
 });
 
 test("a manual double click navigates an enterable proposed node exactly once", () => {
@@ -414,6 +502,7 @@ test("focus restoration targets the same persisted annotation control after redr
   oldControl.dataset.planToggle = "cut";
   oldControl.dataset.planOwnerId = "api";
   oldControl.dataset.impactKey = "impact:responsibility";
+  oldControl.dataset.planRepresentationId = "plan:review-1:impact%3Aresponsibility:responsibility:0:api";
   const replacement = new FakeElement();
   replacement.dataset = { ...oldControl.dataset };
   const other = new FakeElement();
@@ -432,11 +521,57 @@ test("focus restoration targets the same persisted annotation control after redr
     kind: "control",
     ownerId: "api",
     impactKey: "impact:responsibility",
+    representationId: "plan:review-1:impact%3Aresponsibility:responsibility:0:api",
     control: "cut",
   });
   assert.equal(restorePlanFocus(redrawnWorld, token), true);
   assert.equal(replacement.focusCount, 1);
   assert.equal(other.focusCount, 0);
+});
+
+test("focus restoration distinguishes removal and responsibility controls for one impact and owner", () => {
+  const current = buildPlanProjection({
+    id: "review-1",
+    impacts: [{
+      key: "impact:shared",
+      level: "system",
+      additions: [],
+      connections: [],
+      removals: [{ id: "api" }],
+      responsibilities: [{ id: "api", intent: "Own retries.", why: "Centralizes policy." }],
+      disconnections: [],
+    }],
+  }, persistedNodes, []);
+  const removal = current.annotations.removals[0];
+  const responsibility = current.annotations.responsibilities[0];
+  const oldResponsibilityCut = new FakeElement();
+  oldResponsibilityCut.dataset.planToggle = "cut";
+  oldResponsibilityCut.dataset.planOwnerId = responsibility.targetId;
+  oldResponsibilityCut.dataset.impactKey = responsibility.impactKey;
+  oldResponsibilityCut.dataset.planRepresentationId = responsibility.id;
+
+  const redrawnRemovalCut = new FakeElement();
+  redrawnRemovalCut.dataset.planToggle = "cut";
+  redrawnRemovalCut.dataset.planOwnerId = removal.targetId;
+  redrawnRemovalCut.dataset.impactKey = removal.impactKey;
+  redrawnRemovalCut.dataset.planRepresentationId = removal.id;
+  const redrawnResponsibilityCut = new FakeElement();
+  redrawnResponsibilityCut.dataset = { ...oldResponsibilityCut.dataset };
+  const redrawnWorld = {
+    querySelectorAll() { return [redrawnRemovalCut, redrawnResponsibilityCut]; },
+  };
+
+  const token = capturePlanFocus(oldResponsibilityCut);
+  assert.deepEqual(token, {
+    kind: "control",
+    ownerId: "api",
+    impactKey: "impact:shared",
+    representationId: responsibility.id,
+    control: "cut",
+  });
+  assert.equal(restorePlanFocus(redrawnWorld, token), true);
+  assert.equal(redrawnRemovalCut.focusCount, 0);
+  assert.equal(redrawnResponsibilityCut.focusCount, 1);
 });
 
 test("keep and cut decisions retain the same impact key across nested navigation", () => {

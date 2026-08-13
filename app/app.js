@@ -1840,9 +1840,11 @@ import { createRolledLoader } from "./rolled-loader.js";
             '<span>' + esc(item.label) + '</span>' +
             '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(item.impactKey) +
               '" data-plan-owner-id="' + esc(n.id) +
+              '" data-plan-representation-id="' + esc(item.id) +
               '" aria-pressed="' + String(!cut) + '">Keep</button>' +
             '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(item.impactKey) +
               '" data-plan-owner-id="' + esc(n.id) +
+              '" data-plan-representation-id="' + esc(item.id) +
               '" aria-pressed="' + String(cut) + '">Cut</button></span>';
         }).join("");
       el.innerHTML =
@@ -1901,9 +1903,11 @@ import { createRolledLoader } from "./rolled-loader.js";
       ? '<span class="plan-card-controls" data-impact-key="' + esc(n.impactKey) + '">' +
           '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(n.impactKey) +
             '" data-plan-owner-id="' + esc(n.id) +
+            '" data-plan-representation-id="' + esc(n.id) +
             '" aria-pressed="' + String(!cut) + '">Keep</button>' +
           '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(n.impactKey) +
             '" data-plan-owner-id="' + esc(n.id) +
+            '" data-plan-representation-id="' + esc(n.id) +
             '" aria-pressed="' + String(cut) + '">Cut</button></span>'
       : "";
     el.innerHTML = count
@@ -3056,6 +3060,10 @@ import { createRolledLoader } from "./rolled-loader.js";
         focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, true),
         enter: (id) => enterNode(id),
         select: (impactKey, id) => selectPlanImpact(impactKey, id),
+        selectRepresentation: (id) => {
+          focusTemporaryPlanRepresentation("", id, false);
+          redrawPlanWithFocus({ kind: "action", id });
+        },
       });
       lastNodeClick = activation.lastClick;
       return;

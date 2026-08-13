@@ -161,28 +161,23 @@ export function handleTemporaryActivation(event, element, state, callbacks) {
 
   if (event && event.type === "click") {
     const now = Number.isFinite(state && state.now) ? state.now : Date.now();
+    const pointerClick = Number(event.detail) > 0;
     if (!event.detail) {
       element?.focus?.({ preventScroll: true });
       callbacks.focus?.(impactKey, id);
-      if (enterable) {
-        callbacks.enter(id);
-        return { handled: true, action: "enter", lastClick: null };
-      }
     }
-    if (enterable && lastClick && lastClick.id === id && now - lastClick.time < 400) {
+    if (pointerClick && enterable && lastClick &&
+        lastClick.id === id && now - lastClick.time < 400) {
       event.preventDefault();
       callbacks.enter(id);
       return { handled: true, action: "enter", lastClick: null };
     }
-    if (enterable && !impactKey) {
-      callbacks.enter(id);
-      return { handled: true, action: "enter", lastClick: null };
-    }
     if (impactKey) callbacks.select(impactKey, id);
+    else if (enterable) callbacks.selectRepresentation?.(id);
     return {
-      handled: !!impactKey,
-      action: impactKey ? "select" : "",
-      lastClick: { id, time: now },
+      handled: !!impactKey || enterable,
+      action: impactKey || enterable ? "select" : "",
+      lastClick: pointerClick ? { id, time: now } : lastClick,
     };
   }
 
@@ -196,6 +191,7 @@ export function capturePlanFocus(element) {
       kind: "control",
       ownerId: String(control.dataset?.planOwnerId || ""),
       impactKey: String(control.dataset?.impactKey || ""),
+      representationId: String(control.dataset?.planRepresentationId || ""),
       control: String(control.dataset?.planToggle || ""),
     };
   }
@@ -215,7 +211,8 @@ export function restorePlanFocus(root, token) {
       if (token.kind === "control") {
         return element.dataset.planToggle === token.control &&
           element.dataset.planOwnerId === token.ownerId &&
-          element.dataset.impactKey === token.impactKey;
+          element.dataset.impactKey === token.impactKey &&
+          element.dataset.planRepresentationId === token.representationId;
       }
       return false;
     });
