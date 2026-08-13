@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { runReview } from "../src/review-command.js";
 import { createPlanStore } from "../src/plan-store.js";
+import { createServer } from "../src/server.js";
 
 async function project() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "plangolin-review-"));
@@ -61,19 +62,28 @@ test("approving prints a brief and exits 0", async () => {
   assert.match(brief, /Reviewed in plangolin/);
 });
 
-test("the review loading note calls the project a system map", async () => {
+test("the review loading notes call the project a system map", async () => {
+  const browser = createServer({ root: "/tmp/plangolin-static" });
+  await new Promise((r) => browser.listen(0, "127.0.0.1", r));
   const root = await project();
   const holder = {};
   const writes = [];
   const originalWrite = process.stderr.write;
   process.stderr.write = (text) => { writes.push(String(text)); return true; };
   try {
+    const html = await fetch(`http://127.0.0.1:${browser.address().port}/`).then((r) => r.text());
+    const loading = html.match(/<div class="plan-loading" id="plan-loading" hidden>([\s\S]*?)<\/div>/);
+    assert.ok(loading, "served app includes its plan-loading element");
+    assert.match(loading[1], /Preparing the plan against your system map/);
+    assert.doesNotMatch(loading[1], /sheet/i);
+
     const open = (url) => { holder.url = url; approveVia(holder, [])(); };
     await runReview(root, "1. Add a limiter\n", {
       open, timeout: 2_000, plans: reviewableStore(), port: 0,
     });
   } finally {
     process.stderr.write = originalWrite;
+    await new Promise((r) => browser.close(r));
   }
   assert.match(writes.join(""), /Preparing the plan against your system map\./);
 });
