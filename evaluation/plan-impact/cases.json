@@ -1,0 +1,193 @@
+[
+  {
+    "id": "new-component-connection",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Add a background worker component." }, { "n": 2, "text": "Connect the API to the background worker." }],
+    "expected": { "placements": [{ "steps": [1, 2], "levels": ["system"], "allowedTargets": [""] }], "allowedStructuralOperations": ["additions:worker", "connections:api>worker"], "requiresStructuralChange": true }
+  },
+  {
+    "id": "responsibility-changing-edit",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "intent": "Serves requests.", "files": ["src/api.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Make the API validate and normalize all incoming requests." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["system"], "allowedTargets": [""] }], "allowedStructuralOperations": ["responsibilities:api"], "requiresStructuralChange": true }
+  },
+  {
+    "id": "internal-only-refactor",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js", "src/router.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js", "src/router.js"], "rationale": "Shares route imports.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Refactor route parsing into a reusable internal helper without changing API behavior." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["api"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "small-internal-change",
+    "contexts": {
+      "named": { "nodes": [{ "id": "authentication", "name": "Authentication", "files": ["src/auth.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:authentication", "files": ["src/auth.js"], "rationale": "Contains credential checks.", "dependencies": [] }], "edges": [], "idFor": { "group:authentication": "authentication" } }
+    },
+    "steps": [{ "n": 1, "text": "Increase the token clock-skew allowance by one minute." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["authentication"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "tests-and-documentation-only",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Add API timeout tests." }, { "n": 2, "text": "Document the timeout troubleshooting workflow." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": ["api"] }, { "steps": [2], "levels": ["support"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "component-scoped-support",
+    "contexts": {
+      "named": { "nodes": [{ "id": "billing", "name": "Billing", "files": ["src/billing.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:billing", "files": ["src/billing.js"], "rationale": "Contains charge calculations.", "dependencies": [] }], "edges": [], "idFor": { "group:billing": "billing" } }
+    },
+    "steps": [{ "n": 1, "text": "Add billing rounding regression tests." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": ["billing"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "project-wide-support",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Add a release checklist for all packages." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "existing-file-step",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
+    },
+    "steps": [{ "n": 1, "text": "Update timeout parsing in src/api.js." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["api"], "requiredFiles": ["src/api.js"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "vague-unresolved-step",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }, { "id": "worker", "name": "Worker", "files": ["src/worker.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns requests.", "dependencies": [] }, { "ref": "group:worker", "files": ["src/worker.js"], "rationale": "Runs jobs.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api", "group:worker": "worker" } }
+    },
+    "steps": [{ "n": 1, "text": "Put the new policy in the appropriate place." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "empty-project",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Create a command-line application component." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["system"], "allowedTargets": [""] }], "allowedStructuralOperations": ["additions:cli"], "requiresStructuralChange": true }
+  },
+  {
+    "id": "unreadable-project",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update the existing request policy." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "large-capped-project",
+    "contexts": {
+      "named": { "nodes": [{ "id": "gateway", "name": "Gateway", "files": ["src/gateway.js"] }, { "id": "catalog", "name": "Catalog", "files": ["src/catalog.js"] }, { "id": "orders", "name": "Orders", "files": ["src/orders.js"] }], "edges": [{ "from": "gateway", "to": "catalog" }, { "from": "gateway", "to": "orders" }], "metadata": { "capped": true, "observedFiles": 500, "estimatedFiles": 5000 } },
+      "provisional": { "groups": [{ "ref": "group:gateway", "files": ["src/gateway.js"], "rationale": "Routes traffic.", "dependencies": ["group:catalog", "group:orders"] }, { "ref": "group:catalog", "files": ["src/catalog.js"], "rationale": "Provides item data.", "dependencies": [] }, { "ref": "group:orders", "files": ["src/orders.js"], "rationale": "Processes orders.", "dependencies": [] }], "edges": [{ "from": "group:gateway", "to": "group:catalog" }, { "from": "group:gateway", "to": "group:orders" }], "idFor": { "group:gateway": "gateway", "group:catalog": "catalog", "group:orders": "orders" }, "metadata": { "capped": true, "observedFiles": 500, "estimatedFiles": 5000 } }
+    },
+    "steps": [{ "n": 1, "text": "Refactor gateway retry bookkeeping without changing its routing responsibility." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["gateway"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "nested-hand-edited-diagram",
+    "contexts": {
+      "named": { "nodes": [{ "id": "backend", "name": "Backend", "files": [] }, { "id": "api", "name": "API", "parent": "backend", "files": ["src/api.js"] }, { "id": "authentication", "name": "Authentication", "parent": "api", "files": ["src/auth.js"] }], "edges": [] },
+      "provisional": { "groups": [{ "ref": "group:backend", "files": ["src/api.js", "src/auth.js"], "rationale": "Contains server capabilities.", "dependencies": [] }, { "ref": "group:api", "parent": "group:backend", "files": ["src/api.js"], "rationale": "Owns requests.", "dependencies": [] }, { "ref": "group:authentication", "parent": "group:api", "files": ["src/auth.js"], "rationale": "Checks credentials.", "dependencies": [] }], "edges": [], "idFor": { "group:backend": "backend", "group:api": "api", "group:authentication": "authentication" } }
+    },
+    "steps": [{ "n": 1, "text": "Change token refresh bookkeeping in src/auth.js." }],
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["authentication"], "requiredFiles": ["src/auth.js"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  },
+  {
+    "id": "malformed-model-output",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update request parsing." }],
+    "execution": { "scenario": "malformed" },
+    "expected": { "failureClass": "malformed" }
+  },
+  {
+    "id": "invalid-addition-reference",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Add a request cache component." }],
+    "execution": { "scenario": "invalid-addition-reference" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+  },
+  {
+    "id": "invalid-removal-reference",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Remove the retired request worker." }],
+    "execution": { "scenario": "invalid-removal-reference" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+  },
+  {
+    "id": "invalid-responsibility-reference",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Make the retired worker validate requests." }],
+    "execution": { "scenario": "invalid-responsibility-reference" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+  },
+  {
+    "id": "invalid-connection-reference",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Connect the API to the retired worker." }],
+    "execution": { "scenario": "invalid-connection-reference" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+  },
+  {
+    "id": "invalid-disconnection-reference",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Disconnect the API from the retired worker." }],
+    "execution": { "scenario": "invalid-disconnection-reference" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+  },
+  {
+    "id": "timeout-failure",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update request parsing." }],
+    "execution": { "scenario": "timeout" },
+    "expected": { "failureClass": "timeout" }
+  },
+  {
+    "id": "quota-failure",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update request parsing." }],
+    "execution": { "scenario": "quota" },
+    "expected": { "failureClass": "quota" }
+  },
+  {
+    "id": "refusal-failure",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update request parsing." }],
+    "execution": { "scenario": "refusal" },
+    "expected": { "failureClass": "refusal" }
+  },
+  {
+    "id": "network-failure",
+    "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
+    "steps": [{ "n": 1, "text": "Update request parsing." }],
+    "execution": { "scenario": "network" },
+    "expected": { "failureClass": "network" }
+  },
+  {
+    "id": "repeated-identical-cold-runs",
+    "contexts": {
+      "named": { "nodes": [{ "id": "api", "name": "API", "files": ["src/api.js"] }, { "id": "worker", "name": "Worker", "files": ["src/worker.js"] }], "edges": [{ "from": "api", "to": "worker", "label": "queues" }] },
+      "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns requests.", "dependencies": ["group:worker"] }, { "ref": "group:worker", "files": ["src/worker.js"], "rationale": "Runs jobs.", "dependencies": [] }], "edges": [{ "from": "group:api", "to": "group:worker", "label": "queues" }], "idFor": { "group:api": "api", "group:worker": "worker" } }
+    },
+    "steps": [{ "n": 1, "text": "Refactor worker retry bookkeeping without changing its responsibility." }],
+    "execution": { "scenario": "repeat-cold" },
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["worker"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+  }
+]
