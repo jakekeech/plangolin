@@ -98,9 +98,9 @@ export function planSummary(review, projection, nodes) {
       operationNames(responsibilities, "component") + "." : "",
   ].filter(Boolean);
 
-  const affected = impacts
+  const affected = [...new Set(impacts
     .filter((entry) => (entry.level === "component" || entry.level === "support") && entry.targetId)
-    .map((entry) => nameOf(entry.targetId));
+    .map((entry) => nameOf(entry.targetId)))];
   const unresolvedSteps = [...new Set(impacts
     .filter((entry) => entry.level === "unresolved")
     .flatMap((entry) => list(entry.steps)))];

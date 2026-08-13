@@ -109,6 +109,26 @@ test("an internal-only summary names affected components before the secondary sh
     "The system shape stays the same.");
 });
 
+test("component and support impacts on the same target name that component once", () => {
+  const result = planSummary(review({
+    impacts: [
+      impact({ key: "impact:api" }),
+      impact({ key: "impact:api-support", level: "support", targetId: "api" }),
+    ],
+  }), {
+    nodes: [
+      { planType: "card", impactKey: "impact:api", parent: "api" },
+      { planType: "card", impactKey: "impact:api-support", parent: "api" },
+    ],
+    edges: [],
+    annotations: { removals: [], responsibilities: [], disconnections: [] },
+  }, NODES);
+
+  assert.equal(result,
+    "7 plan steps reviewed. Work affects API Server. The system shape stays the same.");
+  assert.equal((result.match(/API Server/g) || []).length, 1, result);
+});
+
 test("a structural summary leads with additions, removals, and connections", () => {
   const structural = review({
     impacts: [impact({
