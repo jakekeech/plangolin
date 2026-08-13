@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runReview } from "../src/review-command.js";
+import { createPlanStore } from "../src/plan-store.js";
 
 async function project() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "plangolin-review-"));
@@ -15,6 +16,22 @@ async function project() {
   return root;
 }
 
+function reviewableStore() {
+  return createPlanStore({
+    impact: async (_context, steps) => ({
+      impacts: [{
+        key: "impact:1", level: "support", targetId: "", title: "Build the plan",
+        why: "Carries out the requested work.", size: "small", steps: steps.map((step) => step.n),
+        files: [], symbols: [], additions: [], removals: [], responsibilities: [],
+        connections: [], disconnections: [],
+      }],
+      diagnostics: { invalidOperations: 0, issues: [] },
+      coverage: { claimed: steps.length, total: steps.length },
+      provider: "test", model: "test", outcome: "ready",
+    }),
+  });
+}
+
 /** Drives the browser's half: waits for the review to be ready, then resolves
     it through the same route the app uses. */
 function approveVia(urlHolder, accepted) {
@@ -23,7 +40,7 @@ function approveVia(urlHolder, accepted) {
       await new Promise((r) => setTimeout(r, 25));
       if (!urlHolder.url) continue;
       const { review } = await fetch(urlHolder.url + "/api/plan").then((r) => r.json()).catch(() => ({}));
-      if (!review || review.status === "thinking") continue;
+      if (!review || (review.status !== "ready" && review.status !== "partial")) continue;
       await fetch(urlHolder.url + "/api/plan/resolve", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: review.id, accepted, nodes: [{ id: "server", name: "Server" }] }),
@@ -37,7 +54,9 @@ test("approving prints a brief and exits 0", async () => {
   const root = await project();
   const holder = {};
   const open = (url) => { holder.url = url; approveVia(holder, [])(); };
-  const { code, brief } = await runReview(root, "1. Add a limiter\n2. Wire it up\n", { open, timeout: 20000 });
+  const { code, brief } = await runReview(root, "1. Add a limiter\n2. Wire it up\n", {
+    open, timeout: 2_000, plans: reviewableStore(),
+  });
   assert.equal(code, 0);
   assert.match(brief, /Reviewed in plangolin/);
 });
@@ -86,6 +105,6 @@ test("the server is closed on the way out", async () => {
   const root = await project();
   const holder = {};
   const open = (url) => { holder.url = url; approveVia(holder, [])(); };
-  await runReview(root, "1. Add a limiter\n", { open, timeout: 20000 });
+  await runReview(root, "1. Add a limiter\n", { open, timeout: 2_000, plans: reviewableStore() });
   await assert.rejects(fetch(holder.url + "/api/plan"));
 });

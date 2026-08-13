@@ -36,7 +36,11 @@ export function announce(url) {
   }
 }
 
-export async function runReview(root, planText, { open = announce, timeout = TEN_MINUTES } = {}) {
+export async function runReview(root, planText, {
+  open = announce,
+  timeout = TEN_MINUTES,
+  plans = createPlanStore(),
+} = {}) {
   const plan = String(planText || "").trim();
   if (!plan) {
     note("plangolin: that plan file is empty — nothing to review.");
@@ -45,7 +49,6 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
 
   loadEnv(root);
   const ws = nodeWorkspace(root);
-  const plans = createPlanStore();
   const server = createServer(ws, plans);
 
   /* A known port, not an ephemeral one.
@@ -80,7 +83,7 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
   note("");
   open(url);
 
-  // Kicked off, not awaited: the browser polls for the delta and shows what it
+  // Kicked off, not awaited: the browser polls for impacts and shows what it
   // has meanwhile, so the wait below is the user's, not the model's.
   plans.fill(ws);
 

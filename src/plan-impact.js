@@ -443,13 +443,16 @@ export function remapImpactTargets(raw, idFor) {
   };
 }
 
-export async function planImpact(context, steps, { call = callTask } = {}) {
+export async function planImpact(context, steps, { call = callTask, deferValidation = false } = {}) {
   const prompt = buildImpactPrompt(context, steps);
   const response = await call({ task: "impact", prompt });
   if (!isObject(response) || !isObject(response.parsed) || !Array.isArray(response.parsed.impacts)) {
     const error = new Error("plangolin's impact service returned a malformed response.");
     error.validation = true;
     throw error;
+  }
+  if (deferValidation) {
+    return { raw: response.parsed, provider: response.provider, model: response.model };
   }
   const validated = validateImpacts(response.parsed, { ...context, steps });
   return {

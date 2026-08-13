@@ -452,6 +452,35 @@ function progressWriter(root, lease, options = {}) {
   };
 }
 
+async function livePreparationProgress(root, lease, options = {}) {
+  if (!lease || lease.invalid || lease.incomplete) return null;
+  const io = options.fs || nodeFs;
+  const now = options.now || Date.now;
+  const paths = preparationPaths(root, options);
+  const progress = await readJson(progressPath(paths, lease), io);
+  if (!progress || progress.owner !== lease.owner || progress.generation !== lease.generation ||
+      !ACTIVE_PHASES.has(progress.phase) || !Number.isInteger(progress.revision) || progress.revision < 1 ||
+      !Number.isFinite(progress.elapsed) || progress.elapsed < 0 ||
+      !timestampCurrent(progress.updatedAt, now(), options.leaseTtlMs ?? LEASE_TTL_MS,
+        options.maxClockSkewMs ?? MAX_CLOCK_SKEW_MS)) return null;
+  if (!sameLease(await winningLease(root, options), lease) || !await leaseIsLive(root, lease, options)) return null;
+  return {
+    phase: progress.phase,
+    revision: progress.revision,
+    elapsed: progress.elapsed,
+    counts: boundedCounts(progress.counts),
+  };
+}
+
+async function reportFollowProgress(onProgress, progress) {
+  if (!onProgress || !progress) return;
+  try {
+    await onProgress(progress);
+  } catch {
+    // A progress observer cannot interrupt preparation following.
+  }
+}
+
 export async function followPreparation(root, fingerprint, options = {}) {
   if (typeof fingerprint !== "string" || !fingerprint) {
     throw new Error("an expected preparation fingerprint is required");
@@ -461,11 +490,17 @@ export async function followPreparation(root, fingerprint, options = {}) {
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
   const timeoutMs = options.timeoutMs ?? LOCK_STALE_MS;
   const began = now();
+  let reportedRevision = 0;
   for (;;) {
     const result = await readPreparation(root, fingerprint, options);
     if (result) return result;
     const lease = await winningLease(root, options);
     if (!await leaseIsLive(root, lease, options)) return readPreparation(root, fingerprint, options);
+    const progress = await livePreparationProgress(root, lease, options);
+    if (progress && progress.revision > reportedRevision) {
+      await reportFollowProgress(options.onProgress, progress);
+      reportedRevision = progress.revision;
+    }
     if (now() - began >= timeoutMs) return null;
     await sleep(pollMs);
   }

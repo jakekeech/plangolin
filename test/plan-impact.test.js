@@ -440,6 +440,22 @@ test("planImpact calls the hosted impact task and derives a partial outcome from
   assert.equal(result.outcome, "partial");
 });
 
+test("planImpact can defer provisional validation until group refs are remapped", async () => {
+  const raw = { impacts: [impact({ targetId: "group:api", steps: [1] })] };
+  const result = await planImpact({ nodes: [], edges: [], groups: [
+    { ref: "group:api", files: ["src/api.js"], dependencies: [] },
+  ] }, [STEPS[0]], {
+    deferValidation: true,
+    call: async () => ({ parsed: raw, provider: "openai", model: "test-model" }),
+  });
+
+  assert.equal(result.raw, raw);
+  assert.equal(result.provider, "openai");
+  assert.equal(result.model, "test-model");
+  assert.equal("impacts" in result, false);
+  assert.equal("outcome" in result, false);
+});
+
 test("planImpact derives ready only from a successful fully validated response", async () => {
   const result = await planImpact({ nodes: NODES, edges: EDGES }, [STEPS[1]], {
     call: async () => ({

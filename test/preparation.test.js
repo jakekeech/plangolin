@@ -20,6 +20,13 @@ import {
 
 const generationName = (generation) => String(generation).padStart(12, "0");
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
 async function writeLeaseState(root, cacheRoot, {
   generation = 1,
   owner = "11111111-1111-4111-8111-111111111111",
@@ -894,6 +901,57 @@ test("followPreparation returns a live matching worker's final atomic result", a
   }
   const following = followPreparation(root, fingerprint, { cacheRoot, pollMs: 5, timeoutMs: 1_000 });
   finish();
+  assert.deepEqual(await following, await running);
+});
+
+test("followPreparation reports bounded live progress while retaining exact result fencing", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const doubles = preparationDoubles();
+  const nameStarted = deferred();
+  const finishName = deferred();
+  const sleepEntered = deferred();
+  const continueFollowing = deferred();
+  const running = runPreparation(root, {
+    cacheRoot,
+    ws: { root },
+    ...doubles,
+    name: async (_discovery, { onProgress }) => {
+      await onProgress({
+        phase: "naming_and_matching",
+        counts: { components: 1, privatePath: "/private/project/src/api.js" },
+      });
+      nameStarted.resolve();
+      await finishName.promise;
+      return doubles.described;
+    },
+  });
+  await nameStarted.promise;
+
+  const progress = [];
+  const following = followPreparation(root, fingerprintGraph(doubles.graph), {
+    cacheRoot,
+    timeoutMs: 1_000,
+    sleep: async () => {
+      sleepEntered.resolve();
+      await continueFollowing.promise;
+    },
+    onProgress(event) { progress.push(event); },
+  });
+
+  try {
+    await sleepEntered.promise;
+    assert.deepEqual(progress, [{
+      phase: "naming_and_matching",
+      revision: 3,
+      elapsed: progress[0]?.elapsed,
+      counts: { components: 1 },
+    }]);
+    assert.ok(Number.isFinite(progress[0].elapsed));
+    assert.doesNotMatch(JSON.stringify(progress), /private|project|src\/api/);
+  } finally {
+    finishName.resolve();
+    continueFollowing.resolve();
+  }
   assert.deepEqual(await following, await running);
 });
 
