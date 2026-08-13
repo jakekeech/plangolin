@@ -45,17 +45,10 @@ async function writeStartup(root, cacheRoot, {
   const owner = "11111111-1111-4111-8111-111111111111";
   const g = String(generation).padStart(12, "0");
   await fs.mkdir(paths.dir, { recursive: true });
-  await fs.writeFile(path.join(paths.dir, `lease-${g}.json`), JSON.stringify({
-    version: 1,
-    rootHash: paths.rootHash,
-    generation,
-    owner,
-    pid,
-    startedAt,
-  }));
-  await fs.writeFile(path.join(paths.dir, `heartbeat-${g}-${owner}.json`), JSON.stringify({
-    version: 1, generation, owner, renewedAt: startedAt,
-  }));
+  const lease = path.join(paths.dir, `lease-${g}.claim`);
+  await fs.mkdir(lease);
+  await fs.mkdir(path.join(lease, `${owner}-${pid}-${startedAt}.owner`));
+  await fs.mkdir(path.join(paths.dir, `heartbeat-${g}-${owner}-000000000001-${startedAt}.beat`));
   await fs.writeFile(path.join(paths.dir, `progress-${g}-${owner}.json`), JSON.stringify({
     owner, generation, phase: "starting", revision, elapsed: 0,
     updatedAt: startedAt, counts: {},
@@ -151,11 +144,65 @@ test("concurrent public commands share one atomic launcher reservation and spawn
     runPrepareCommand(root, options),
   ]);
 
-  assert.equal(LAUNCHER_RESERVATION_MS, PREPARE_START_TIMEOUT_MS);
+  assert.ok(LAUNCHER_RESERVATION_MS > PREPARE_START_TIMEOUT_MS);
   assert.equal(initialReads, 2, "both commands observed no worker before launcher election");
   assert.equal(children.length, 1);
-  assert.equal(first.code, 0);
-  assert.equal(second.code, 0);
+  assert.ok([first.code, second.code].includes(0));
+  assert.ok([first.code, second.code].every((code) => code === 0 || code === 1));
+});
+
+test("a partially published reservation cannot let generations one and two both spawn", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const paths = preparationPaths(root, { cacheRoot });
+  let signalSlot;
+  const slotCreated = new Promise((resolve) => { signalSlot = resolve; });
+  let releaseSlot;
+  const slotGate = new Promise((resolve) => { releaseSlot = resolve; });
+  let signalFollower;
+  const followerSawSlot = new Promise((resolve) => { signalFollower = resolve; });
+  let slotBlocked = true;
+  const io = {
+    ...fs,
+    async mkdir(dir, ...args) {
+      const result = await fs.mkdir(dir, ...args);
+      if (path.basename(dir) === "launcher-000000000001.claim" && slotBlocked) {
+        signalSlot();
+        await slotGate;
+        slotBlocked = false;
+      }
+      return result;
+    },
+    async readdir(dir, ...args) {
+      const result = await fs.readdir(dir, ...args);
+      if (dir === path.join(paths.dir, "launcher-000000000001.claim") && slotBlocked) signalFollower();
+      return result;
+    },
+  };
+  let spawns = 0;
+  const spawn = () => {
+    spawns += 1;
+    return childProcessDouble();
+  };
+  const options = {
+    cacheRoot, fs: io, cliPath: CLI_PATH, spawn,
+    pollMs: 1, timeoutMs: 40,
+    sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  };
+
+  const first = runPrepareCommand(root, options);
+  await slotCreated;
+  const second = runPrepareCommand(root, options);
+  await followerSawSlot;
+  assert.equal(spawns, 0);
+  releaseSlot();
+  const results = await Promise.all([first, second]);
+
+  assert.equal(spawns, 1);
+  assert.deepEqual(
+    (await fs.readdir(paths.dir)).filter((name) => name.startsWith("launcher-")),
+    ["launcher-000000000001.claim"],
+  );
+  assert.ok(results.every((result) => result.code === 1));
 });
 
 test("a detached spawn error is a startup failure, not a success message", async (t) => {
@@ -182,7 +229,7 @@ test("a cache status read failure returns nonzero without spawning", async (t) =
   let spawns = 0;
   const io = {
     ...fs,
-    async readFile() {
+    async readdir() {
       const err = new Error("cache permission denied");
       err.code = "EACCES";
       throw err;

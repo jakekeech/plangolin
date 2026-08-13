@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
 import { promises as nodeFs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,15 +12,19 @@ export const HEARTBEAT_INTERVAL_MS = 5_000;
 export const MAX_CLOCK_SKEW_MS = 1_000;
 export const ORPHAN_TEMP_STALE_MS = 60_000;
 export const LOCK_POLL_MS = 100;
-// Kept as a public compatibility name for callers that injected the previous
-// stale threshold. A lease is now renewable and expires on this shorter TTL.
 export const LOCK_STALE_MS = LEASE_TTL_MS;
 
 const VERSION = 1;
 const GENERATION_WIDTH = 12;
-const LEASE_RE = /^lease-(\d{12})\.json$/;
-const RESULT_RE = /^result-(\d{12})-([0-9a-f-]{36}|manual)\.json$/;
-const TEMP_RE = /^\.tmp-(result|progress|lock-update)-(\d{12})-([0-9a-f-]{36})-[^.]+\.json$/;
+const UUID = "[0-9a-f-]{36}";
+const LEASE_RE = /^lease-(\d{12})\.claim$/;
+const OWNER_RE = new RegExp(`^(${UUID})-(\\d+)-(\\d+)\\.owner$`);
+const RESULT_RE = new RegExp(`^result-(\\d{12})-(${UUID}|manual)\\.json$`);
+const COMPLETION_RE = new RegExp(`^complete-(\\d{12})-(${UUID})\\.done$`);
+const HEARTBEAT_RE = new RegExp(`^heartbeat-(\\d{12})-(${UUID})-(\\d{12})-(\\d+)\\.beat$`);
+const TEMP_RE = new RegExp(
+  `^\\.tmp-(result|progress|lock-update)-(\\d{12})-(${UUID}|manual)-[^.]+\\.json$`,
+);
 const ACTIVE_PHASES = new Set([
   "starting", "working", "mapping_project", "grouping_components", "naming_and_matching",
 ]);
@@ -61,28 +66,62 @@ function defaultCacheRoot({ env = process.env, platform = process.platform, home
   return pathApi.join(env.XDG_CACHE_HOME || pathApi.join(home, ".cache"), "plangolin");
 }
 
+function physicalPath(target) {
+  let existing = target;
+  const suffix = [];
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    suffix.unshift(path.basename(existing));
+    existing = parent;
+  }
+  const physical = existsSync(existing) ? realpathSync(existing) : path.resolve(existing);
+  return path.resolve(physical, ...suffix);
+}
+
+function inside(child, parent, platform) {
+  let comparedChild = child;
+  let comparedParent = parent;
+  if (platform === "win32") {
+    comparedChild = child.toLowerCase();
+    comparedParent = parent.toLowerCase();
+  }
+  return comparedChild === comparedParent || comparedChild.startsWith(comparedParent + path.sep);
+}
+
 export function preparationPaths(root, options = {}) {
   const platform = options.platform || process.platform;
   const pathApi = cachePathApi(platform);
   const cwd = options.cwd || process.cwd();
   const workspaceRoot = pathApi.resolve(cwd, root);
   const cacheRoot = pathApi.resolve(cwd, options.cacheRoot || defaultCacheRoot(options));
-  const comparedWorkspace = platform === "win32" ? workspaceRoot.toLowerCase() : workspaceRoot;
-  const comparedCache = platform === "win32" ? cacheRoot.toLowerCase() : cacheRoot;
-  if (comparedCache === comparedWorkspace || comparedCache.startsWith(comparedWorkspace + pathApi.sep)) {
-    throw new Error("the preparation cache must be outside the workspace root");
+  if (options.platform === undefined) {
+    const physicalWorkspace = physicalPath(workspaceRoot);
+    const physicalCache = physicalPath(cacheRoot);
+    if (inside(physicalCache, physicalWorkspace, platform)) {
+      throw new Error("the preparation cache must be outside the workspace root");
+    }
+  } else {
+    const comparedWorkspace = platform === "win32" ? workspaceRoot.toLowerCase() : workspaceRoot;
+    const comparedCache = platform === "win32" ? cacheRoot.toLowerCase() : cacheRoot;
+    if (comparedCache === comparedWorkspace || comparedCache.startsWith(comparedWorkspace + pathApi.sep)) {
+      throw new Error("the preparation cache must be outside the workspace root");
+    }
   }
   const rootHash = createHash("sha256").update(workspaceRoot).digest("hex");
-  const dir = pathApi.join(cacheRoot, rootHash);
-  return { root: workspaceRoot, cacheRoot, rootHash, dir };
+  return { root: workspaceRoot, cacheRoot, rootHash, dir: pathApi.join(cacheRoot, rootHash) };
 }
 
-function leasePath(paths, generation) {
-  return path.join(paths.dir, `lease-${generationName(generation)}.json`);
+function claimName(generation) {
+  return `lease-${generationName(generation)}.claim`;
 }
 
-function heartbeatPath(paths, lease) {
-  return path.join(paths.dir, `heartbeat-${generationName(lease.generation)}-${lease.owner}.json`);
+function claimPath(paths, lease) {
+  return path.join(paths.dir, claimName(lease.generation));
+}
+
+function ownerName(lease) {
+  return `${lease.owner}-${lease.pid}-${lease.startedAt}.owner`;
 }
 
 function progressPath(paths, lease) {
@@ -91,6 +130,10 @@ function progressPath(paths, lease) {
 
 function resultPath(paths, lease = { generation: 0, owner: "manual" }) {
   return path.join(paths.dir, `result-${generationName(lease.generation)}-${lease.owner}.json`);
+}
+
+function completionPath(paths, lease) {
+  return path.join(paths.dir, `complete-${generationName(lease.generation)}-${lease.owner}.done`);
 }
 
 async function namesIn(dir, io) {
@@ -128,21 +171,65 @@ function validRecord(record, rootHash, fingerprint = record?.fingerprint) {
   );
 }
 
+function generationsFrom(names) {
+  return names.flatMap((name) => {
+    const match = LEASE_RE.exec(name);
+    return match ? [{ generation: Number(match[1]), name }] : [];
+  });
+}
+
+async function winningLease(root, options = {}) {
+  const io = options.fs || nodeFs;
+  const paths = preparationPaths(root, options);
+  const generations = generationsFrom(await namesIn(paths.dir, io));
+  if (!generations.length) return null;
+  const generation = Math.max(...generations.map((entry) => entry.generation));
+  const slot = path.join(paths.dir, claimName(generation));
+  const owners = (await namesIn(slot, io)).flatMap((name) => {
+    const match = OWNER_RE.exec(name);
+    return match ? [{
+      version: VERSION, rootHash: paths.rootHash, generation,
+      owner: match[1], pid: Number(match[2]), startedAt: Number(match[3]), name,
+    }] : [];
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  if (owners.length) return owners[0];
+  let stat;
+  try { stat = await io.stat(slot); }
+  catch { return { generation, incomplete: true, reservedAt: 0 }; }
+  return { generation, incomplete: true, reservedAt: stat.mtimeMs };
+}
+
+function sameLease(left, right) {
+  return Boolean(left && right && left.generation === right.generation && left.owner === right.owner);
+}
+
+async function completionExists(paths, lease, io) {
+  try {
+    await io.access(completionPath(paths, lease));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function readPreparation(root, fingerprint, options = {}) {
   if (typeof fingerprint !== "string" || !fingerprint) {
     throw new Error("an expected preparation fingerprint is required");
   }
   const io = options.fs || nodeFs;
   const paths = preparationPaths(root, options);
-  const candidates = (await namesIn(paths.dir, io)).flatMap((name) => {
-    const match = RESULT_RE.exec(name);
-    return match ? [{ name, generation: Number(match[1]) }] : [];
-  }).sort((a, b) => b.generation - a.generation);
-  for (const candidate of candidates) {
-    const record = await readJson(path.join(paths.dir, candidate.name), io);
-    if (validRecord(record, paths.rootHash, fingerprint)) return record;
-  }
-  return null;
+  const lease = await winningLease(root, options);
+  if (!lease || !await completionExists(paths, lease, io)) return null;
+  const record = await readJson(resultPath(paths, lease), io);
+  return validRecord(record, paths.rootHash, fingerprint) ? record : null;
+}
+
+async function readCompletedLease(root, lease, options = {}) {
+  const io = options.fs || nodeFs;
+  const paths = preparationPaths(root, options);
+  if (!lease || lease.incomplete || !await completionExists(paths, lease, io)) return null;
+  const record = await readJson(resultPath(paths, lease), io);
+  return validRecord(record, paths.rootHash) ? record : null;
 }
 
 async function atomicOwnerJson(paths, kind, lease, value, io, beforeRename) {
@@ -153,9 +240,7 @@ async function atomicOwnerJson(paths, kind, lease, value, io, beforeRename) {
   try {
     await io.writeFile(temporary, JSON.stringify(value), "utf8");
     if (beforeRename) await beforeRename();
-    const final = kind === "result" ? resultPath(paths, lease)
-      : kind === "progress" ? progressPath(paths, lease)
-      : heartbeatPath(paths, lease);
+    const final = kind === "result" ? resultPath(paths, lease) : progressPath(paths, lease);
     await io.rename(temporary, final);
   } catch (err) {
     await io.unlink(temporary).catch(() => {});
@@ -166,40 +251,19 @@ async function atomicOwnerJson(paths, kind, lease, value, io, beforeRename) {
 export async function writePreparation(root, record, options = {}) {
   const io = options.fs || nodeFs;
   const paths = preparationPaths(root, options);
-  if (!validRecord(record, paths.rootHash)) {
-    throw new Error("refusing to cache an invalid preparation result");
-  }
+  if (!validRecord(record, paths.rootHash)) throw new Error("refusing to cache an invalid preparation result");
   await io.mkdir(paths.dir, { recursive: true });
-  const lease = options.lease || { generation: 0, owner: "manual" };
+  let lease = options.lease;
+  if (!lease) {
+    const acquired = await acquireLease(root, { ...options, forceNew: true });
+    lease = acquired.owner;
+    if (!lease) throw new Error("could not acquire a preparation lease for writing");
+  }
   await atomicOwnerJson(paths, "result", lease, record, io);
-  return record;
-}
-
-function validLease(raw, generation, rootHash) {
-  return Boolean(
-    raw && raw.version === VERSION && raw.rootHash === rootHash &&
-    raw.generation === generation && /^[0-9a-f-]{36}$/.test(raw.owner || "") &&
-    Number.isInteger(raw.pid) && raw.pid > 0 && Number.isFinite(raw.startedAt)
-  );
-}
-
-async function winningLease(root, options = {}) {
-  const io = options.fs || nodeFs;
-  const paths = preparationPaths(root, options);
-  const generations = (await namesIn(paths.dir, io)).flatMap((name) => {
-    const match = LEASE_RE.exec(name);
-    return match ? [Number(match[1])] : [];
+  await io.mkdir(completionPath(paths, lease)).catch((err) => {
+    if (err.code !== "EEXIST") throw err;
   });
-  if (!generations.length) return null;
-  const generation = Math.max(...generations);
-  const raw = await readJson(leasePath(paths, generation), io);
-  if (!validLease(raw, generation, paths.rootHash)) return { generation, invalid: true };
-  return raw;
-}
-
-function sameLease(left, right) {
-  return Boolean(left && right && !left.invalid && !right.invalid &&
-    left.generation === right.generation && left.owner === right.owner);
+  return record;
 }
 
 function timestampCurrent(timestamp, now, ttl = LEASE_TTL_MS, skew = MAX_CLOCK_SKEW_MS) {
@@ -210,20 +274,32 @@ function timestampNotFuture(timestamp, now, skew = MAX_CLOCK_SKEW_MS) {
   return Number.isFinite(timestamp) && timestamp <= now + skew;
 }
 
+async function newestHeartbeat(root, lease, options = {}) {
+  const io = options.fs || nodeFs;
+  const paths = preparationPaths(root, options);
+  const prefix = `heartbeat-${generationName(lease.generation)}-${lease.owner}-`;
+  const records = (await namesIn(paths.dir, io)).flatMap((name) => {
+    if (!name.startsWith(prefix)) return [];
+    const match = HEARTBEAT_RE.exec(name);
+    return match ? [{ sequence: Number(match[3]), renewedAt: Number(match[4]) }] : [];
+  }).sort((a, b) => b.sequence - a.sequence || b.renewedAt - a.renewedAt);
+  return records[0] || null;
+}
+
 async function leaseIsLive(root, lease, options = {}) {
-  if (!lease || lease.invalid) return false;
+  if (!lease) return false;
   const io = options.fs || nodeFs;
   const now = options.now || Date.now;
   const paths = preparationPaths(root, options);
   const skew = options.maxClockSkewMs ?? MAX_CLOCK_SKEW_MS;
   const ttl = options.leaseTtlMs ?? LEASE_TTL_MS;
+  if (lease.incomplete) return timestampCurrent(lease.reservedAt, now(), ttl, skew);
   if (!timestampNotFuture(lease.startedAt, now(), skew)) return false;
   const progress = await readJson(progressPath(paths, lease), io);
   if (progress?.owner === lease.owner && progress?.generation === lease.generation &&
       (progress.phase === "complete" || progress.phase === "failed")) return false;
-  const heartbeat = await readJson(heartbeatPath(paths, lease), io);
-  const renewedAt = heartbeat?.owner === lease.owner && heartbeat?.generation === lease.generation
-    ? heartbeat.renewedAt : lease.startedAt;
+  const heartbeat = await newestHeartbeat(root, lease, options);
+  const renewedAt = heartbeat?.renewedAt ?? lease.startedAt;
   if (!timestampCurrent(renewedAt, now(), ttl, skew)) return false;
   const processAlive = options.processAlive || processIsAlive;
   try {
@@ -233,26 +309,32 @@ async function leaseIsLive(root, lease, options = {}) {
   }
 }
 
-async function renewLease(root, lease, options = {}) {
+function leaseRenewer(root, lease, options = {}) {
   const io = options.fs || nodeFs;
-  const current = await winningLease(root, options);
-  if (!sameLease(current, lease)) return false;
   const paths = preparationPaths(root, options);
   const now = options.now || Date.now;
-  await atomicOwnerJson(paths, "lock-update", lease, {
-    version: VERSION,
-    generation: lease.generation,
-    owner: lease.owner,
-    renewedAt: now(),
-  }, io);
-  return true;
+  let sequence = 0;
+  return async () => {
+    const current = await winningLease(root, options);
+    if (!sameLease(current, lease)) return false;
+    sequence += 1;
+    const renewedAt = now();
+    const name = `heartbeat-${generationName(lease.generation)}-${lease.owner}-` +
+      `${generationName(sequence)}-${renewedAt}.beat`;
+    try {
+      await io.mkdir(path.join(paths.dir, name));
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+    }
+    return sameLease(await winningLease(root, options), lease);
+  };
 }
 
-function startHeartbeat(root, lease, options = {}) {
+function startHeartbeat(renew, options = {}) {
   const every = options.setInterval || setInterval;
   const cancel = options.clearInterval || clearInterval;
   const interval = options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
-  const timer = every(() => { renewLease(root, lease, options).catch(() => {}); }, interval);
+  const timer = every(() => { renew().catch(() => {}); }, interval);
   timer?.unref?.();
   return () => cancel(timer);
 }
@@ -261,6 +343,7 @@ async function cleanupOrphanTemps(root, lease, options = {}) {
   const io = options.fs || nodeFs;
   const paths = preparationPaths(root, options);
   const now = options.now || Date.now;
+  const staleMs = options.orphanTempStaleMs ?? ORPHAN_TEMP_STALE_MS;
   for (const name of await namesIn(paths.dir, io)) {
     const match = TEMP_RE.exec(name);
     if (!match) continue;
@@ -269,12 +352,7 @@ async function cleanupOrphanTemps(root, lease, options = {}) {
     if (generation === lease.generation && owner === lease.owner) continue;
     const file = path.join(paths.dir, name);
     let stat;
-    try {
-      stat = await io.stat(file);
-    } catch {
-      continue;
-    }
-    const staleMs = options.orphanTempStaleMs ?? ORPHAN_TEMP_STALE_MS;
+    try { stat = await io.stat(file); } catch { continue; }
     if (now() - stat.mtimeMs <= staleMs) continue;
     await io.unlink(file).catch(() => {});
   }
@@ -287,7 +365,9 @@ async function acquireLease(root, options = {}) {
   await io.mkdir(paths.dir, { recursive: true });
   for (;;) {
     const current = await winningLease(root, options);
-    if (await leaseIsLive(root, current, options)) return { owner: null, existing: current };
+    const completed = current && !current.incomplete && await completionExists(paths, current, io);
+    if (completed && !options.forceNew) return { owner: null, completed: current };
+    if (!completed && await leaseIsLive(root, current, options)) return { owner: null, existing: current };
     const generation = (current?.generation || 0) + 1;
     const lease = {
       version: VERSION,
@@ -298,14 +378,40 @@ async function acquireLease(root, options = {}) {
       startedAt: now(),
     };
     try {
-      await io.writeFile(leasePath(paths, generation), JSON.stringify(lease), { encoding: "utf8", flag: "wx" });
+      await io.mkdir(claimPath(paths, lease));
     } catch (err) {
       if (err.code === "EEXIST") continue;
       throw err;
     }
-    await renewLease(root, lease, options);
+    try {
+      await io.mkdir(path.join(claimPath(paths, lease), ownerName(lease)));
+    } catch {
+      return { owner: null, fencedBy: await winningLease(root, options) };
+    }
+    if (!sameLease(await winningLease(root, options), lease)) continue;
+    const renew = leaseRenewer(root, lease, options);
+    if (!await renew()) return { owner: null, fencedBy: await winningLease(root, options) };
+    if (!sameLease(await winningLease(root, options), lease)) {
+      return { owner: null, fencedBy: await winningLease(root, options) };
+    }
     await cleanupOrphanTemps(root, lease, options);
-    return { owner: lease, existing: null };
+    return { owner: lease, renew, existing: null };
+  }
+}
+
+async function followLeaseCompletion(root, lease, options = {}) {
+  const now = options.now || Date.now;
+  const sleep = options.sleep || sleepFor;
+  const pollMs = options.pollMs ?? LOCK_POLL_MS;
+  const timeoutMs = options.timeoutMs ?? LOCK_STALE_MS;
+  const began = now();
+  for (;;) {
+    const current = await winningLease(root, options);
+    if (!sameLease(current, lease)) return null;
+    const record = await readCompletedLease(root, lease, options);
+    if (record) return record;
+    if (!await leaseIsLive(root, lease, options) || now() - began >= timeoutMs) return null;
+    await sleep(pollMs);
   }
 }
 
@@ -328,19 +434,12 @@ function progressWriter(root, lease, options = {}) {
     revision += 1;
     const updatedAt = now();
     const record = {
-      owner: lease.owner,
-      generation: lease.generation,
+      owner: lease.owner, generation: lease.generation,
       phase: PROGRESS_PHASES.has(phase) ? phase : "working",
-      revision,
-      elapsed: Math.max(0, updatedAt - lease.startedAt),
-      updatedAt,
+      revision, elapsed: Math.max(0, updatedAt - lease.startedAt), updatedAt,
       counts: boundedCounts(counts),
     };
-    try {
-      await atomicOwnerJson(paths, "progress", lease, record, io);
-    } catch {
-      // Progress is observational. It must never control preparation work.
-    }
+    try { await atomicOwnerJson(paths, "progress", lease, record, io); } catch {}
     return record;
   };
 }
@@ -374,9 +473,7 @@ export async function preparationStartup(root, options = {}) {
   if (!await leaseIsLive(root, before, options)) return { live: false, ready: false };
   const progress = await readJson(progressPath(paths, before), io);
   const after = await winningLease(root, options);
-  if (!sameLease(before, after)) {
-    return { live: await leaseIsLive(root, after, options), ready: false };
-  }
+  if (!sameLease(before, after)) return { live: await leaseIsLive(root, after, options), ready: false };
   if (!await leaseIsLive(root, after, options)) return { live: false, ready: false };
   const ready = Boolean(
     progress && progress.owner === after.owner && progress.generation === after.generation &&
@@ -391,10 +488,14 @@ export async function preparationStartup(root, options = {}) {
 async function publishOwnedResult(root, lease, record, options = {}) {
   const io = options.fs || nodeFs;
   const paths = preparationPaths(root, options);
-  await atomicOwnerJson(paths, "result", lease, record, io, async () => {
-    const current = await winningLease(root, options);
-    if (!sameLease(current, lease)) throw new LostLeaseError();
-  });
+  await atomicOwnerJson(paths, "result", lease, record, io);
+  if (!sameLease(await winningLease(root, options), lease)) throw new LostLeaseError();
+  try {
+    await io.mkdir(completionPath(paths, lease));
+  } catch (err) {
+    if (err.code !== "EEXIST") throw err;
+  }
+  if (!sameLease(await winningLease(root, options), lease)) throw new LostLeaseError();
 }
 
 export async function runPreparation(root, options = {}) {
@@ -410,12 +511,30 @@ export async function runPreparation(root, options = {}) {
   let lease;
   let report;
   let stopHeartbeat = () => {};
+  let forceNew = false;
 
   for (;;) {
-    const acquired = await acquireLease(workspaceRoot, options);
+    const acquired = await acquireLease(workspaceRoot, { ...options, forceNew });
+    forceNew = false;
     if (acquired.owner) {
       lease = acquired.owner;
+      stopHeartbeat = startHeartbeat(acquired.renew, options);
       break;
+    }
+    if (acquired.fencedBy) {
+      const followed = await followLeaseCompletion(workspaceRoot, acquired.fencedBy, options);
+      if (followed) return followed;
+      continue;
+    }
+    if (acquired.completed) {
+      if (!graph) {
+        graph = await buildGraph(ws);
+        fingerprint = fingerprintGraph(graph);
+      }
+      const cached = await readPreparation(workspaceRoot, fingerprint, options);
+      if (cached) return cached;
+      forceNew = true;
+      continue;
     }
     if (!graph) {
       graph = await buildGraph(ws);
@@ -428,19 +547,16 @@ export async function runPreparation(root, options = {}) {
   try {
     report = progressWriter(workspaceRoot, lease, options);
     await report({ phase: "starting", counts: {} });
-    stopHeartbeat = startHeartbeat(workspaceRoot, lease, options);
     if (options.startupHoldMs > 0) await (options.sleep || sleepFor)(options.startupHoldMs);
     if (!graph) {
       graph = await buildGraph(ws);
       fingerprint = fingerprintGraph(graph);
     }
-
     const cached = await readPreparation(workspaceRoot, fingerprint, options);
     if (cached) {
       await report({ phase: "complete", counts: { moves: cached.moves.length, dropped: cached.dropped.length } });
       return cached;
     }
-
     const discovery = await discover(ws, { graph, onProgress: report });
     let described = { blocks: [], labels: new Map(), dropped: [], provider: null, model: null };
     let moves = [];
@@ -449,14 +565,10 @@ export async function runPreparation(root, options = {}) {
       ({ moves } = movesFrom(discovery, described));
     }
     const record = {
-      version: VERSION,
-      rootHash: preparationPaths(workspaceRoot, options).rootHash,
-      fingerprint,
-      createdAt: now(),
-      moves,
+      version: VERSION, rootHash: preparationPaths(workspaceRoot, options).rootHash,
+      fingerprint, createdAt: now(), moves,
       dropped: [...discovery.dropped, ...described.dropped],
-      provider: described.provider,
-      model: described.model,
+      provider: described.provider, model: described.model,
     };
     await publishOwnedResult(workspaceRoot, lease, record, options);
     await report({ phase: "complete", counts: { moves: record.moves.length, dropped: record.dropped.length } });

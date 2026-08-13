@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fingerprintGraph } from "../src/filegraph.js";
 import {
   LEASE_TTL_MS,
   LOCK_POLL_MS,
@@ -33,12 +34,10 @@ async function writeLeaseState(root, cacheRoot, {
   const paths = preparationPaths(root, { cacheRoot });
   const g = generationName(generation);
   await fs.mkdir(paths.dir, { recursive: true });
-  await fs.writeFile(path.join(paths.dir, `lease-${g}.json`), JSON.stringify({
-    version: 1, rootHash: paths.rootHash, generation, owner, pid, startedAt,
-  }));
-  await fs.writeFile(path.join(paths.dir, `heartbeat-${g}-${owner}.json`), JSON.stringify({
-    version: 1, generation, owner, renewedAt,
-  }));
+  const lease = path.join(paths.dir, `lease-${g}.claim`);
+  await fs.mkdir(lease);
+  await fs.mkdir(path.join(lease, `${owner}-${pid}-${startedAt}.owner`));
+  await fs.mkdir(path.join(paths.dir, `heartbeat-${g}-${owner}-000000000001-${renewedAt}.beat`));
   await fs.writeFile(path.join(paths.dir, `progress-${g}-${progressOwner}.json`), JSON.stringify({
     owner: progressOwner,
     generation,
@@ -151,6 +150,21 @@ test("normalizes relative roots and cache roots but rejects cache storage inside
   }), /outside.*workspace/i);
 });
 
+test("rejects a cache root whose physical symlink target is inside the workspace", async (t) => {
+  const { temp, root } = await temporaryProject(t, "plangolin-cache-symlink-");
+  const inside = path.join(root, "hidden-cache");
+  const alias = path.join(temp, "outside-looking-cache");
+  await fs.mkdir(inside);
+  try {
+    await fs.symlink(inside, alias, "dir");
+  } catch (err) {
+    if (["EPERM", "EACCES", "ENOSYS"].includes(err.code)) return t.skip(`symlinks unsupported: ${err.code}`);
+    throw err;
+  }
+
+  assert.throws(() => preparationPaths(root, { cacheRoot: alias }), /outside.*workspace/i);
+});
+
 test("writes a result by same-directory rename and reads only its exact fingerprint", async (t) => {
   const { root, cacheRoot } = await temporaryProject(t);
   const record = recordFor(root, cacheRoot);
@@ -168,10 +182,10 @@ test("writes a result by same-directory rename and reads only its exact fingerpr
   const paths = preparationPaths(root, { cacheRoot });
   assert.equal(renames.length, 1);
   assert.equal(path.dirname(renames[0][0]), paths.dir);
-  assert.equal(path.basename(renames[0][1]), "result-000000000000-manual.json");
+  assert.match(path.basename(renames[0][1]), /^result-000000000001-[0-9a-f-]{36}\.json$/);
   assert.deepEqual(await readPreparation(root, record.fingerprint, { cacheRoot }), record);
   assert.equal(await readPreparation(root, "b".repeat(64), { cacheRoot }), null);
-  assert.deepEqual(await fs.readdir(paths.dir), ["result-000000000000-manual.json"]);
+  assert.equal((await fs.readdir(paths.dir)).filter((name) => name.startsWith("result-")).length, 1);
 });
 
 test("readPreparation requires a nonempty expected fingerprint", async (t) => {
@@ -356,6 +370,85 @@ test("an exact cached preparation skips discovery, naming, and move generation",
   assert.deepEqual(cached, first);
 });
 
+test("a completed fingerprint miss advances immediately to a new generation", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const first = preparationDoubles();
+  await runPreparation(root, { cacheRoot, ws: { root }, ...first });
+  const changedGraph = {
+    ...graphFixture(),
+    files: [...graphFixture().files, "src/new.js"],
+  };
+  const second = preparationDoubles();
+  second.graph = changedGraph;
+  second.buildGraph = async () => changedGraph;
+  second.discovery.graph = changedGraph;
+  second.discover = async (_ws, { graph, onProgress }) => {
+    assert.equal(graph, changedGraph);
+    await onProgress({ phase: "grouping_components", counts: { components: 1 } });
+    return second.discovery;
+  };
+  second.movesFrom = () => ({ moves: [{ t: "addNode", node: { id: "changed" } }] });
+
+  const record = await runPreparation(root, {
+    cacheRoot, ws: { root }, pollMs: 1, timeoutMs: 20, ...second,
+  });
+
+  assert.equal(record.moves[0].node.id, "changed");
+  const leases = (await fs.readdir(preparationPaths(root, { cacheRoot }).dir))
+    .filter((name) => name.startsWith("lease-"));
+  assert.deepEqual(leases.sort(), ["lease-000000000001.claim", "lease-000000000002.claim"]);
+});
+
+test("an incomplete lease slot blocks a follower until its owner identity is published", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const paths = preparationPaths(root, { cacheRoot });
+  let signalSlot;
+  const slotCreated = new Promise((resolve) => { signalSlot = resolve; });
+  let releaseSlot;
+  const slotGate = new Promise((resolve) => { releaseSlot = resolve; });
+  let signalFollower;
+  const followerSawSlot = new Promise((resolve) => { signalFollower = resolve; });
+  let slotBlocked = true;
+  const io = {
+    ...fs,
+    async mkdir(dir, ...args) {
+      const result = await fs.mkdir(dir, ...args);
+      if (path.basename(dir) === "lease-000000000001.claim" && slotBlocked) {
+        signalSlot();
+        await slotGate;
+        slotBlocked = false;
+      }
+      return result;
+    },
+    async readdir(dir, ...args) {
+      const result = await fs.readdir(dir, ...args);
+      if (dir === path.join(paths.dir, "lease-000000000001.claim") && slotBlocked) signalFollower();
+      return result;
+    },
+  };
+  const doubles = preparationDoubles();
+  let namings = 0;
+  const options = {
+    cacheRoot, fs: io, ws: { root }, pollMs: 2, ...doubles,
+    name: async (...args) => { namings += 1; return doubles.name(...args); },
+  };
+
+  const first = runPreparation(root, options);
+  await slotCreated;
+  const second = runPreparation(root, options);
+  await followerSawSlot;
+  assert.equal(namings, 0);
+  releaseSlot();
+  const [one, two] = await Promise.all([first, second]);
+
+  assert.deepEqual(one, two);
+  assert.equal(namings, 1);
+  assert.deepEqual(
+    (await fs.readdir(paths.dir)).filter((name) => name.startsWith("lease-")).sort(),
+    ["lease-000000000001.claim"],
+  );
+});
+
 test("a matching live worker is followed and only one naming pass runs", async (t) => {
   const { root, cacheRoot } = await temporaryProject(t);
   const doubles = preparationDoubles();
@@ -460,7 +553,7 @@ test("startup retries when ownership changes during its progress read", async (t
 
   assert.equal(changed, true);
   assert.deepEqual(status, { live: true, ready: false });
-  assert.ok(await fs.readFile(path.join(first.paths.dir, `lease-${generationName(2)}.json`), "utf8"));
+  assert.ok((await fs.readdir(first.paths.dir)).includes(`lease-${generationName(2)}.claim`));
 });
 
 test("future-dated and expired leases are not live despite a live PID", async (t) => {
@@ -488,12 +581,12 @@ test("future-dated and expired leases are not live despite a live PID", async (t
   await writeLeaseState(root, cacheRoot, {
     generation: 3,
     owner: "33333333-3333-4333-8333-333333333333",
-    startedAt: 10_000 - LEASE_TTL_MS - 1,
-    renewedAt: 9_999,
-    progressAt: 9_999,
+    startedAt: 1,
+    renewedAt: 19_999,
+    progressAt: 19_999,
   });
   assert.deepEqual(await preparationStartup(root, {
-    cacheRoot, now: () => 10_000, processAlive: () => true,
+    cacheRoot, now: () => 20_000, processAlive: () => true,
   }), { live: true, ready: true });
 });
 
@@ -506,10 +599,16 @@ test("a fenced owner cannot overwrite a newer owner's lease, progress, or result
   const oldAtPublish = new Promise((resolve) => { signalOldPublish = resolve; });
   const oldIo = {
     ...fs,
-    async rename(from, to) {
-      if (path.basename(from).startsWith(".tmp-result-000000000001-")) {
+    async mkdir(dir, ...args) {
+      if (path.basename(dir).startsWith("complete-000000000001-")) {
         signalOldPublish();
         await oldPublishGate;
+      }
+      return fs.mkdir(dir, ...args);
+    },
+    async rename(from, to) {
+      if (path.basename(from).startsWith(".tmp-result-000000000001-")) {
+        // Owner 1's final exists before its completion marker is delayed.
       }
       return fs.rename(from, to);
     },
@@ -536,11 +635,13 @@ test("a fenced owner cannot overwrite a newer owner's lease, progress, or result
     cacheRoot, ws: { root }, now: () => now, processAlive: () => true, ...newer,
   });
   const paths = preparationPaths(root, { cacheRoot });
-  const oldHeartbeatName = (await fs.readdir(paths.dir)).find((name) => name.startsWith("heartbeat-000000000001-"));
-  const heartbeatBefore = await fs.readFile(path.join(paths.dir, oldHeartbeatName), "utf8");
+  const oldHeartbeatBefore = (await fs.readdir(paths.dir)).filter((name) => name.startsWith("heartbeat-000000000001-"));
   oldHeartbeatTick();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(await fs.readFile(path.join(paths.dir, oldHeartbeatName), "utf8"), heartbeatBefore);
+  assert.deepEqual(
+    (await fs.readdir(paths.dir)).filter((name) => name.startsWith("heartbeat-000000000001-")),
+    oldHeartbeatBefore,
+  );
   releaseOldPublish();
   await oldRun;
   assert.equal(oldHeartbeatStopped, true);
@@ -551,6 +652,126 @@ test("a fenced owner cannot overwrite a newer owner's lease, progress, or result
   assert.equal(names.filter((name) => name.startsWith("lease-")).length, 2);
   assert.equal(names.filter((name) => name.startsWith("progress-")).length, 2);
   assert.equal(names.filter((name) => name.startsWith("result-")).length, 2);
+});
+
+test("a newer failed generation masks a delayed older successful result", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let now = 1_000;
+  let releaseOldPublish;
+  const oldPublishGate = new Promise((resolve) => { releaseOldPublish = resolve; });
+  let signalOldPublish;
+  const oldAtPublish = new Promise((resolve) => { signalOldPublish = resolve; });
+  const oldIo = {
+    ...fs,
+    async mkdir(dir, ...args) {
+      if (path.basename(dir).startsWith("complete-000000000001-")) {
+        signalOldPublish();
+        await oldPublishGate;
+      }
+      return fs.mkdir(dir, ...args);
+    },
+  };
+  const old = preparationDoubles({
+    movesFrom: () => ({ moves: [{ t: "addNode", node: { id: "old" } }] }),
+  });
+  const oldRun = runPreparation(root, {
+    cacheRoot, fs: oldIo, ws: { root }, now: () => now, processAlive: () => true, ...old,
+  });
+  await oldAtPublish;
+  now += LEASE_TTL_MS + 1;
+  const newer = preparationDoubles();
+
+  await assert.rejects(runPreparation(root, {
+    cacheRoot, ws: { root }, now: () => now, processAlive: () => true, ...newer,
+    name: async () => { throw new Error("new generation failed"); },
+  }), /new generation failed/);
+  releaseOldPublish();
+  await assert.rejects(oldRun, /fenced/);
+
+  const fingerprint = fingerprintGraph(old.graph);
+  assert.equal(await readPreparation(root, fingerprint, { cacheRoot }), null);
+});
+
+test("an owner fenced during initial renewal follows without doing graph or naming work", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let now = 1_000;
+  let injected = false;
+  let graphBuilds = 0;
+  const winner = preparationDoubles({
+    movesFrom: () => ({ moves: [{ t: "addNode", node: { id: "winner" } }] }),
+  });
+  const io = {
+    ...fs,
+    async mkdir(dir, ...args) {
+      if (!injected && path.basename(dir).startsWith("heartbeat-000000000001-")) {
+        injected = true;
+        now += LEASE_TTL_MS + 1;
+        await runPreparation(root, {
+          cacheRoot, ws: { root }, now: () => now, processAlive: () => true, ...winner,
+        });
+      }
+      return fs.mkdir(dir, ...args);
+    },
+  };
+
+  const record = await runPreparation(root, {
+    cacheRoot, fs: io, ws: { root }, now: () => now, processAlive: () => true,
+    buildGraph: async () => { graphBuilds += 1; return winner.graph; },
+    discover: async () => { throw new Error("fenced owner must not discover"); },
+    name: async () => { throw new Error("fenced owner must not name"); },
+  });
+
+  assert.equal(injected, true);
+  assert.equal(graphBuilds, 0);
+  assert.equal(record.moves[0].node.id, "winner");
+});
+
+test("out-of-order heartbeat completion cannot make a newer renewal look stale", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  let now = 2_000;
+  let heartbeatTick;
+  let releaseWork;
+  const workGate = new Promise((resolve) => { releaseWork = resolve; });
+  let releaseOlder;
+  const olderGate = new Promise((resolve) => { releaseOlder = resolve; });
+  let olderBlocked;
+  const olderAtRename = new Promise((resolve) => { olderBlocked = resolve; });
+  let heartbeatClaims = 0;
+  const io = {
+    ...fs,
+    async mkdir(dir, ...args) {
+      if (path.basename(dir).startsWith("heartbeat-")) heartbeatClaims += 1;
+      if (heartbeatClaims === 2) {
+        olderBlocked();
+        await olderGate;
+      }
+      return fs.mkdir(dir, ...args);
+    },
+  };
+  const doubles = preparationDoubles({
+    name: async (...args) => { await workGate; return preparationDoubles().name(...args); },
+  });
+  const running = runPreparation(root, {
+    cacheRoot, fs: io, ws: { root }, now: () => now, processAlive: () => true, ...doubles,
+    setInterval(fn) { heartbeatTick = fn; return { unref() {} }; },
+    clearInterval() {},
+  });
+  while (!heartbeatTick) await new Promise((resolve) => setImmediate(resolve));
+
+  heartbeatTick();
+  await olderAtRename;
+  now = 3_000;
+  heartbeatTick();
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseOlder();
+  await new Promise((resolve) => setImmediate(resolve));
+  now = 2_000 + LEASE_TTL_MS + 1;
+
+  assert.deepEqual(await preparationStartup(root, {
+    cacheRoot, now: () => now, processAlive: () => true,
+  }), { live: true, ready: false });
+  releaseWork();
+  await running;
 });
 
 test("two successors that both observe a stale lease elect one higher generation without unlinking", async (t) => {
@@ -565,13 +786,13 @@ test("two successors that both observe a stale lease elect one higher generation
   const bothClaims = new Promise((resolve) => { releaseClaims = resolve; });
   const io = {
     ...fs,
-    async writeFile(file, ...args) {
-      if (path.basename(file) === "lease-000000000002.json") {
+    async mkdir(dir, ...args) {
+      if (path.basename(dir) === "lease-000000000002.claim") {
         leaseAttempts += 1;
         if (leaseAttempts === 2) releaseClaims();
         await bothClaims;
       }
-      return fs.writeFile(file, ...args);
+      return fs.mkdir(dir, ...args);
     },
   };
   const options = {
@@ -590,7 +811,9 @@ test("two successors that both observe a stale lease elect one higher generation
   assert.equal(namings, 1);
   const leaseNames = (await fs.readdir(preparationPaths(root, { cacheRoot }).dir))
     .filter((name) => name.startsWith("lease-"));
-  assert.deepEqual(leaseNames, ["lease-000000000001.json", "lease-000000000002.json"]);
+  assert.equal(leaseNames.length, 2);
+  assert.ok(leaseNames.includes("lease-000000000001.claim"));
+  assert.ok(leaseNames.includes("lease-000000000002.claim"));
 });
 
 test("followPreparation returns a live matching worker's final atomic result", async (t) => {
@@ -710,6 +933,7 @@ test("a successor removes only old recognized orphan temps outside its current l
     `.tmp-result-000000000001-${oldOwner}-orphan.json`,
     `.tmp-progress-000000000001-${oldOwner}-orphan.json`,
     `.tmp-lock-update-000000000001-${oldOwner}-orphan.json`,
+    ".tmp-result-000000000000-manual-orphan.json",
   ];
   const recent = `.tmp-result-000000000001-${oldOwner}-recent.json`;
   const current = `.tmp-progress-000000000001-${currentOwner}-current.json`;
