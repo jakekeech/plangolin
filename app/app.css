@@ -1270,23 +1270,20 @@
   }
 
   .plan-grip {
-    display: flex; align-items: center; gap: 9px;
+    display: flex; align-items: center; gap: 7px;
     padding: 8px 11px; border-bottom: 1px solid var(--rule, rgba(27,27,25,.12));
     cursor: grab; flex: none;
   }
   .plan-grip:active { cursor: grabbing; }
   .plan-ttl {
     font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--ink-faint);
+    text-transform: uppercase; color: var(--ink-faint); margin-right: auto;
   }
-  /* Wraps, and may shrink. A flex item defaults to min-width:auto, so a long
-     plan grew this row past the panel and carried the counter and the close
-     button out with it — at 26 proposals the ✕ sat 32px beyond the edge and
-     could not be clicked. Wrapping costs a second row of dots; the alternative
-     costs the way out of the panel. */
+  /* The dots are decision history rather than navigation. Their own bottom
+     row can wrap without moving the arrows someone is repeatedly pressing. */
   .plan-dots {
-    display: flex; gap: 5px; flex-wrap: wrap;
-    flex: 0 1 auto; min-width: 0; row-gap: 4px;
+    display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;
+    width: 100%; min-width: 0; row-gap: 4px;
   }
   /* The dots carry what you decided, not only where you are: filled for kept,
      hollow-grey for cut. What you have already answered stays legible without
@@ -1300,7 +1297,7 @@
   .plan-dot.cut { background: var(--ink-faint); border-color: var(--ink-faint); opacity: .5; }
   .plan-dot.now { background: var(--pine); border-color: var(--pine); transform: scale(1.2); }
   .plan-of {
-    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    font-family: var(--mono); font-size: 11px;
     color: var(--ink-faint); font-variant-numeric: tabular-nums;
   }
   .plan-x {
@@ -1315,7 +1312,8 @@
   .planpanel[data-collapsed="true"] .plan-note,
   .planpanel[data-collapsed="true"] .plan-loading,
   .planpanel[data-collapsed="true"] .plan-body,
-  .planpanel[data-collapsed="true"] .plan-foot { display: none; }
+  .planpanel[data-collapsed="true"] .plan-foot,
+  .planpanel[data-collapsed="true"] .plan-progress { display: none; }
   .planpanel[data-collapsed="true"] .plan-grip { border-bottom: 0; }
   .planpanel[data-collapsed="true"] { width: auto; min-width: 240px; }
 
@@ -1412,7 +1410,11 @@
   .plan-foot[data-stage="summary"] #plan-cut,
   .plan-foot[data-stage="thinking"] #plan-keep,
   .plan-foot[data-stage="thinking"] #plan-cut { display: none; }
-  .plan-nav { margin-left: auto; display: flex; gap: 5px; }
+  .plan-progress {
+    display: flex; align-items: center; min-height: 7px;
+    padding: 0 14px 11px; flex: none;
+  }
+  .plan-nav { display: flex; gap: 5px; flex: none; }
   .plan-nav button {
     font: inherit; width: 30px; height: 28px; cursor: pointer;
     border: 1.5px solid var(--ink); border-radius: 5px; background: var(--paper);
