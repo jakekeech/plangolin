@@ -7,6 +7,7 @@
 // noise.
 
 import { EXCLUDE_DIRS } from "./structure.js";
+import { createHash } from "node:crypto";
 import { buildIndex, linksFrom } from "./imports/index.js";
 import { findAliasConfigs } from "./imports/aliases.js";
 import { httpRoutes, httpLinks } from "./imports/http.js";
@@ -21,6 +22,27 @@ export const SOURCE_EXT = new Set([
 ]);
 
 const MAX_FILES = 2000;
+
+/** A content address for the graph facts that affect adoption. Object and
+ * input-array order are deliberately discarded; file, edge, and imported-name
+ * facts are not. */
+export function fingerprintGraph(graph) {
+  const facts = {
+    files: [...(graph.files || [])].map(String).sort(),
+    links: [...(graph.links || [])].map((link) => ({
+      from: String(link.from || ""),
+      to: String(link.to || ""),
+      kind: String(link.kind || ""),
+      names: [...(link.names || [])].map(String).sort(),
+    })).sort((a, b) => {
+      const left = JSON.stringify(a);
+      const right = JSON.stringify(b);
+      return left < right ? -1 : left > right ? 1 : 0;
+    }),
+    capped: Boolean(graph.capped),
+  };
+  return createHash("sha256").update(JSON.stringify(facts)).digest("hex");
+}
 
 function extOf(name) {
   const i = name.lastIndexOf(".");
