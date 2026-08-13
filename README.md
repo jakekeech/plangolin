@@ -15,7 +15,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jakekeech/plangolin/actions/workflows/test.yml"><img src="https://github.com/jakekeech/plangolin/actions/workflows/test.yml/badge.svg" alt="tests" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1F6F6B" alt="MIT licence" /></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-1F6F6B" alt="Node 20 or newer" />
   <img src="https://img.shields.io/badge/runtime_dependencies-0-1F6F6B" alt="No runtime dependencies" />
