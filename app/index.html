@@ -93,8 +93,9 @@
       <div class="plan-note" id="plan-note"></div>
       <div class="plan-loading" id="plan-loading" hidden>
         <canvas class="plan-loading-ball" id="plan-loading-ball" aria-hidden="true"></canvas>
-        <p role="status" aria-live="polite">Preparing the plan against your system map…</p>
+        <p id="plan-progress" role="status" aria-live="polite" aria-atomic="true"></p>
       </div>
+      <p class="plan-warning" id="plan-warning" role="status" aria-live="polite" hidden></p>
       <div class="plan-body" id="plan-body">
         <div class="plan-row1">
           <span class="plan-mark" id="plan-mark"></span>
@@ -111,13 +112,20 @@
         <p class="plan-reach" id="plan-reach"></p>
         <p class="plan-quote" id="plan-quote"></p>
       </div>
-      <footer class="plan-foot">
-        <button class="ghost-btn" id="plan-cut" type="button">Cut</button>
-        <button class="ghost-btn" id="plan-keep" type="button">Keep</button>
-        <button class="ghost-btn primary" id="plan-approve" type="button">Approve</button>
-        <span class="plan-nav">
-          <button id="plan-prev" type="button" aria-label="Previous">◀</button>
-          <button id="plan-next" type="button" aria-label="Next">▶</button>
+      <footer class="plan-foot" id="plan-foot">
+        <button class="ghost-btn" id="plan-cut" type="button"
+                aria-label="Cut this plan change">Cut</button>
+        <button class="ghost-btn" id="plan-keep" type="button"
+                aria-label="Keep this plan change">Keep</button>
+        <button class="ghost-btn primary" id="plan-approve" type="button"
+                aria-label="Approve reviewed plan changes">Approve</button>
+        <button class="ghost-btn primary" id="plan-retry" type="button"
+                aria-label="Retry plan review" hidden>Retry</button>
+        <button class="ghost-btn" id="plan-skip" type="button"
+                aria-label="Skip plan review" hidden>Skip</button>
+        <span class="plan-nav" id="plan-nav">
+          <button id="plan-prev" type="button" aria-label="Previous plan change">◀</button>
+          <button id="plan-next" type="button" aria-label="Next plan change">▶</button>
         </span>
       </footer>
     </aside>

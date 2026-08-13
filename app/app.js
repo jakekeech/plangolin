@@ -23,6 +23,13 @@ import {
   restorePlanFocus,
   selectTemporaryPlanState,
 } from "./plan-interaction.js";
+import {
+  createPlanPollScheduler,
+  createPlanRetryController,
+  planControlState,
+  planProgressCopy,
+  planSummary,
+} from "./plan-progress.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
 (function () {
@@ -619,10 +626,9 @@ import { createRolledLoader } from "./rolled-loader.js";
   let refreshNote = "";
   let refreshBusy = false;
 
-  /* The live plan review, or null. Polled rather than pushed: a plan arrives
-     while the tab may be in the background, and one request every two seconds
-     against a server on this machine costs nothing measurable — a socket to
-     avoid it would be the first dependency in the product. */
+  /* The live plan review, or null. Polled rather than pushed: active work is
+     read quickly enough for each server revision to be visible, then the loop
+     backs off once there is no review to follow. */
   let plan = null;
   let planCut = new Set();          // proposal keys the user has crossed out
   let planAt = 0;                   // which proposal the stepper is showing
@@ -694,11 +700,15 @@ import { createRolledLoader } from "./rolled-loader.js";
   function syncPlanProjection() {
     const reviewable = plan && (plan.status === "ready" || plan.status === "partial");
     const previousProjection = planProjection;
+    const sameReviewInFlight = plan && (plan.status === "working" || plan.status === "error") &&
+      previousProjection.reviewId === plan.id;
     const nextProjection = reviewable
       ? buildPlanProjection(plan, S.nodes, S.edges)
-      : { reviewId: "", nodes: [], edges: [], annotations: {
-          removals: [], responsibilities: [], disconnections: [],
-        } };
+      : sameReviewInFlight
+        ? previousProjection
+        : { reviewId: "", nodes: [], edges: [], annotations: {
+            removals: [], responsibilities: [], disconnections: [],
+          } };
     const navigation = normalizePlanNavigation({
       viewRoot,
       selectedId: planSelectedId,
@@ -2554,12 +2564,38 @@ import { createRolledLoader } from "./rolled-loader.js";
     return cap(s.why || "This changes the system structure.");
   }
 
+  function renderPlanControls(stage) {
+    const controls = planControlState(plan);
+    const keep = document.getElementById("plan-keep");
+    const cut = document.getElementById("plan-cut");
+    const approve = document.getElementById("plan-approve");
+    const retry = document.getElementById("plan-retry");
+    const skip = document.getElementById("plan-skip");
+    const nav = document.getElementById("plan-nav");
+    const foot = document.getElementById("plan-foot");
+    const warning = document.getElementById("plan-warning");
+    const busy = planSending;
+
+    keep.hidden = !controls.keep || stage === "summary";
+    cut.hidden = !controls.cut || stage === "summary";
+    approve.hidden = !controls.approve || stage === "step";
+    retry.hidden = !controls.retry;
+    skip.hidden = !controls.skip;
+    nav.hidden = !controls.navigation;
+    keep.disabled = busy; cut.disabled = busy; approve.disabled = busy;
+    retry.disabled = busy; skip.disabled = busy;
+    foot.dataset.stage = stage;
+    foot.hidden = keep.hidden && cut.hidden && approve.hidden && retry.hidden && skip.hidden && nav.hidden;
+    warning.textContent = controls.warning;
+    warning.hidden = !controls.warning;
+  }
+
   function renderPlan() {
     const note = document.getElementById("plan-note");
     const body = document.getElementById("plan-body");
     const loading = document.getElementById("plan-loading");
     const loadingBall = document.getElementById("plan-loading-ball");
-    const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
+    const progress = document.getElementById("plan-progress");
     /* The stepper's keys travel with the panel, and nothing else renders
        them — so a review that ends without passing through here left K and C
        floating over the sheet, offering shortcuts for a decision already
@@ -2567,30 +2603,55 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (!plan) {
       planLoader.stop();
       loading.hidden = true;
+      document.getElementById("plan-warning").hidden = true;
       setPlanOpen(false);
       renderHint();
       return;
     }
 
-    const approve = document.getElementById("plan-approve");
-    const thinking = plan.status === "thinking";
-    approve.disabled = thinking;
+    const working = plan.status === "working" || plan.status === "thinking";
 
-    if (thinking) {
+    if (working) {
       renderAsk();
-      note.textContent = "";
+      note.textContent = plan.note || "";
+      progress.textContent = planProgressCopy(plan);
       loading.hidden = false;
       body.hidden = true;
       planLoader.start(loadingBall, 58);
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
-      foot.dataset.stage = "thinking";
+      renderPlanControls("working");
+      applyPlanLit();
+      renderHint();
+      positionHint();
       return;
     }
     planLoader.stop();
     loading.hidden = true;
-    note.textContent = plan.note || "";
     body.hidden = false;
+
+    if (plan.status === "error") {
+      note.textContent = "";
+      document.getElementById("plan-dots").innerHTML = "";
+      document.getElementById("plan-of").textContent = "";
+      document.getElementById("plan-mark").textContent = "!";
+      document.getElementById("plan-nm").textContent = "Review paused";
+      document.getElementById("plan-size").textContent = "";
+      document.getElementById("plan-from").textContent = "";
+      document.getElementById("plan-why").textContent = planSummary(plan, planProjection, S.nodes);
+      document.getElementById("plan-detail").textContent = "";
+      document.getElementById("plan-evidence").innerHTML = "";
+      document.getElementById("plan-reach").textContent = "";
+      document.getElementById("plan-quote").innerHTML = "";
+      renderPlanControls("error");
+      applyPlanLit();
+      renderAsk();
+      renderHint();
+      positionHint();
+      return;
+    }
+
+    note.textContent = plan.note || "";
 
     const list = planStepList();
     if (planAt >= list.length) planAt = list.length - 1;
@@ -2620,12 +2681,12 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-nm").textContent = "That's everything";
       document.getElementById("plan-size").textContent = "";
       document.getElementById("plan-from").textContent = "";
-      document.getElementById("plan-why").textContent = kept + " kept, " + gone + " cut.";
-      document.getElementById("plan-detail").textContent = "";
+      document.getElementById("plan-why").textContent = planSummary(plan, planProjection, S.nodes);
+      document.getElementById("plan-detail").textContent = kept + " kept, " + gone + " cut.";
       document.getElementById("plan-reach").textContent = "";
       evidence.innerHTML = "";
       document.getElementById("plan-quote").innerHTML = "";
-      foot.dataset.stage = "summary";
+      renderPlanControls("summary");
     } else {
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
       document.getElementById("plan-nm").textContent = s.name;
@@ -2644,7 +2705,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-quote").innerHTML = said
         ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
         : "";
-      foot.dataset.stage = "step";
+      renderPlanControls("step");
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
     }
@@ -2733,14 +2794,15 @@ import { createRolledLoader } from "./rolled-loader.js";
     const live = !!plan;
     wrap.hidden = !live;
     if (!live) { wrap.dataset.open = "false"; return; }
-    const idle = (plan.status === "ready" || plan.status === "partial")
+    const needsReview = (plan.status === "ready" || plan.status === "partial")
       ? [...new Set((plan.impacts || []).filter((impact) => impact.level === "unresolved")
           .flatMap((impact) => impact.steps || []))].length : 0;
     const total = (plan.steps || []).length;
     brief.innerHTML =
       "<b>You asked for</b><span>" + esc(plan.request || firstStepText()) + "</span>" +
       (total ? '<b style="margin-top:5px">' + total + " plan step" + (total > 1 ? "s" : "") +
-        (idle ? " · " + idle + " change nothing structural" : "") + "</b>" : "");
+        (needsReview ? " · " + needsReview + (needsReview === 1 ? " needs" : " need") + " review" : "") +
+        "</b>" : "");
   }
 
   /* The server sends the plan's steps but not the sentence that prompted it,
@@ -2965,19 +3027,32 @@ import { createRolledLoader } from "./rolled-loader.js";
     }
   }
 
-  /* Skip is gone from the panel.
-     It resolved the review as unanswered, so the agent proceeded with the plan
-     exactly as written — which is what approving with nothing cut already
-     does, except approving also sends the "do not touch" list. So the quick
-     button was the one that threw the product's output away, sitting at equal
-     weight beside the one that kept it.
+  const retryPlan = createPlanRetryController({
+    review: () => plan,
+    publish(next) {
+      plan = next;
+      if (plan) { clearHandoff(); setPlanOpen(true); }
+      renderPlan();
+      drawPlan();
+    },
+    fetch: (...args) => fetch(...args),
+  });
 
-     The route still accepts `skipped`, because a caller that genuinely wants
-     to abandon a review should be able to, and the command still gives up on
-     its own after ten minutes. Nothing here is a dead end without it. */
+  document.getElementById("plan-retry").addEventListener("click", async () => {
+    document.getElementById("plan-close").focus({ preventScroll: true });
+    const retried = await retryPlan();
+    if (!retried && plan && plan.status === "error") {
+      document.getElementById("plan-retry").focus({ preventScroll: true });
+    }
+  });
+
+  document.getElementById("plan-skip").addEventListener("click", () => {
+    if (!plan || plan.status !== "error") return;
+    sendAnswer({ id: plan.id, skipped: true }, { skipped: true });
+  });
 
   document.getElementById("plan-approve").addEventListener("click", () => {
-    if (!plan) return;
+    if (!plan || (plan.status !== "ready" && plan.status !== "partial")) return;
     const all = (plan.impacts || []).map((impact) => impact.key);
     const body = buildPlanResolvePayload(plan, planCut, S.nodes, planProjection);
     sendAnswer(body, { kept: body.accepted.length, cut: all.length - body.accepted.length });
@@ -2988,14 +3063,14 @@ import { createRolledLoader } from "./rolled-loader.js";
      against rather than against `plan` itself, because a review that has been
      answered leaves `plan` null while the server goes on reporting it — and
      "different from null" would then be true on every poll for the rest of
-     the session, redrawing the whole sheet every two seconds. */
+     the session, redrawing the whole sheet on every idle pass. */
   let planSeen = "";
 
   async function pollPlan() {
     try {
       const { review } = await fetch("/api/plan").then((r) => r.json());
       const update = applyReviewRevision(planSeen, review, () => {
-        const wasThinking = !!plan && plan.status === "thinking";
+        const wasWorking = !!plan && (plan.status === "working" || plan.status === "thinking");
         const newReview = !!review && (!plan || plan.id !== review.id);
         // Proposal ids can recur in a later review; carrying a coordinate across
         // that boundary would make a new proposal inherit an old decision.
@@ -3006,15 +3081,15 @@ import { createRolledLoader } from "./rolled-loader.js";
         // command waiting on it can read the brief, but there is nothing left to
         // show and reopening the panel over a decision already sent would be a
         // question asked twice.
-        plan = review && (review.status === "thinking" || review.status === "ready" || review.status === "partial")
+        plan = review && (["working", "thinking", "ready", "partial", "error"].includes(review.status))
           ? review : null;
         // A new review starts with everything accepted. Rejecting is the
         // deliberate act; requiring a click per block to approve a plan you
         // agree with would make the common case the expensive one.
-        /* thinking -> ready is when the panel gains its content and the sheet
+        /* working -> ready is when the panel gains its content and the sheet
            gains its ghosts. Both change what a fit should produce, so this is
            the moment to compute one. */
-        if (plan && (plan.status === "ready" || plan.status === "partial") && wasThinking) fitAfterSettling();
+        if (plan && (plan.status === "ready" || plan.status === "partial") && wasWorking) fitAfterSettling();
         // A second review means the session came back here, so the note telling
         // them to leave has been answered by events.
         if (plan) { clearHandoff(); setPlanOpen(true); }
@@ -3030,10 +3105,10 @@ import { createRolledLoader } from "./rolled-loader.js";
      touches, and a first answer that arrived before the sheet did listed
      their ids instead — the review would then have been read against a
      document the browser had not loaded yet. */
-  function startPlanPolling() {
-    setInterval(pollPlan, 2000);
-    pollPlan();
-  }
+  const planPoller = createPlanPollScheduler({ poll: pollPlan, review: () => plan });
+  function startPlanPolling() { planPoller.start(); }
+  window.addEventListener("pagehide", () => planPoller.stop());
+  window.addEventListener("pageshow", () => startPlanPolling());
 
   // The chips live in two places now — beside the mark when there are one or
   // two, in the panel when there are more — so the handler is on the canvas
@@ -5253,14 +5328,16 @@ import { createRolledLoader } from "./rolled-loader.js";
     clearRetry();
     const kept = sent ? sent.kept : 0;
     const cut = sent ? sent.cut : 0;
+    const skipped = !!(sent && sent.skipped);
     handoffEl = document.createElement("div");
     handoffEl.className = "handoff";
     handoffEl.setAttribute("role", "status");
     handoffEl.innerHTML =
       '<span class="handoff-say">Sent</span>' +
-      '<span class="handoff-count">' + kept + " kept" +
-        (cut ? " · " + cut + " cut" : "") + "</span>" +
-      '<span class="handoff-go">Back to Claude Code — it builds from here.</span>' +
+      '<span class="handoff-count">' + (skipped ? "Review skipped" : kept + " kept" +
+        (cut ? " · " + cut + " cut" : "")) + "</span>" +
+      '<span class="handoff-go">Back to Claude Code — it ' +
+        (skipped ? "continues with the plan as written." : "builds from here.") + "</span>" +
       '<button class="handoff-x" aria-label="Dismiss">×</button>';
     canvas.appendChild(handoffEl);
     handoffEl.querySelector(".handoff-x").addEventListener("click", clearHandoff);
@@ -5424,7 +5501,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       } catch (e) {}
 
       const reviewLive = !!review &&
-        (review.status === "thinking" || review.status === "ready" || review.status === "partial");
+        ["working", "thinking", "ready", "partial", "error"].includes(review.status);
       const hasCode = !!(dirs.dirs && dirs.dirs.length);
       if (reviewLive) {
         /* Nothing. Every splash below says some version of "there is nothing to

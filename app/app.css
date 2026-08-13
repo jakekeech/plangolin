@@ -1393,6 +1393,7 @@
      stays, so it is still draggable and still says how far through you are. */
   .planpanel[data-collapsed="true"] .plan-note,
   .planpanel[data-collapsed="true"] .plan-loading,
+  .planpanel[data-collapsed="true"] .plan-warning,
   .planpanel[data-collapsed="true"] .plan-body,
   .planpanel[data-collapsed="true"] .plan-foot { display: none; }
   .planpanel[data-collapsed="true"] .plan-grip { border-bottom: 0; }
@@ -1410,6 +1411,12 @@
   .plan-loading p {
     margin: 0; font-family: var(--mono); font-size: 12px;
     color: var(--ink-soft); letter-spacing: .02em;
+  }
+  .plan-warning {
+    margin: 0; padding: 8px 14px;
+    border-bottom: 1px solid color-mix(in oklab, var(--plan) 35%, var(--grid));
+    background: var(--plan-wash); color: var(--ink-soft);
+    font: 11px/1.45 var(--mono);
   }
   .plan-body { padding: 11px 14px 2px; overflow-y: auto; min-height: 0; }
   .plan-row1 { display: flex; align-items: baseline; gap: 8px; }
@@ -1503,8 +1510,8 @@
   .plan-foot[data-stage="step"] #plan-approve,
   .plan-foot[data-stage="summary"] #plan-keep,
   .plan-foot[data-stage="summary"] #plan-cut,
-  .plan-foot[data-stage="thinking"] #plan-keep,
-  .plan-foot[data-stage="thinking"] #plan-cut { display: none; }
+  .plan-foot[data-stage="working"] #plan-keep,
+  .plan-foot[data-stage="working"] #plan-cut { display: none; }
   .plan-nav { margin-left: auto; display: flex; gap: 5px; }
   .plan-nav button {
     font: inherit; width: 30px; height: 28px; cursor: pointer;

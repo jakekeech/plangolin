@@ -62,7 +62,7 @@ test("approving prints a brief and exits 0", async () => {
   assert.match(brief, /Reviewed in plangolin/);
 });
 
-test("the review loading notes call the project a system map", async () => {
+test("the browser exposes live progress while the command names the system map", async () => {
   const browser = createServer({ root: "/tmp/plangolin-static" });
   await new Promise((r) => browser.listen(0, "127.0.0.1", r));
   const root = await project();
@@ -74,7 +74,8 @@ test("the review loading notes call the project a system map", async () => {
     const html = await fetch(`http://127.0.0.1:${browser.address().port}/`).then((r) => r.text());
     const loading = html.match(/<div class="plan-loading" id="plan-loading" hidden>([\s\S]*?)<\/div>/);
     assert.ok(loading, "served app includes its plan-loading element");
-    assert.match(loading[1], /Preparing the plan against your system map/);
+    assert.match(loading[1], /id="plan-progress" role="status" aria-live="polite" aria-atomic="true"/);
+    assert.doesNotMatch(loading[1], /Preparing the plan against your system map/);
     assert.doesNotMatch(loading[1], /sheet/i);
 
     const open = (url) => { holder.url = url; approveVia(holder, [])(); };
