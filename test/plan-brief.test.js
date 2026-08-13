@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildBrief } from "../src/plan-brief.js";
+import { buildBrief, buildLegacyDeltaBrief } from "../src/plan-brief.js";
 
 const NODES = [
   { id: "api", name: "API Server", intent: "Serves requests." },
@@ -166,4 +166,20 @@ test("the brief guards its trusted impact contract and keeps truncation explicit
   assert.match(out, /Only the first 8 steps of this plan were reviewed in plangolin\./);
   assert.doesNotMatch(out, /changes nothing structural/i);
   assert.doesNotMatch(out, /approved no change to the shape/i);
+});
+
+test("the named legacy adapter preserves delta briefs without weakening buildBrief", () => {
+  const delta = {
+    additions: [{ id: "limiter", name: "Limiter", intent: "Limits requests.", steps: [1] }],
+    touches: [], connections: [], unplaced: [],
+  };
+
+  const out = buildLegacyDeltaBrief({
+    nodes: NODES, steps: STEPS, delta, reach: [],
+    accepted: new Set(["add:limiter"]), truncated: false,
+  });
+
+  assert.match(out, /BUILD/);
+  assert.match(out, /Limiter — Limits requests\./);
+  assert.throws(() => buildBrief({ nodes: NODES, steps: STEPS, delta, accepted: new Set() }), /impacts must be an array/i);
 });

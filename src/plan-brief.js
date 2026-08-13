@@ -8,6 +8,105 @@ const CITE_CHARS = 80;
 
 const list = (value) => Array.isArray(value) ? value : [];
 
+// Transitional compatibility for the pre-Task-7 store. New callers must use
+// buildBrief() and trusted impact keys; Task 7 removes this adapter once the
+// producer has switched from delta categories to impacts.
+export function buildLegacyDeltaBrief({ nodes, steps, delta, reach = [], accepted, truncated = false }) {
+  const names = new Map((nodes || []).map((node) => [node.id, node.name || node.id]));
+  const d = {
+    additions: delta.additions || [], touches: delta.touches || [],
+    connections: delta.connections || [], unplaced: delta.unplaced || [],
+  };
+  const key = (kind, a, b) => kind === "edge" ? `edge:${a}>${b}` : `${kind}:${a}`;
+  const ok = (kind, a, b) => accepted.has(key(kind, a, b));
+  for (const addition of d.additions) names.set(addition.id, addition.name || addition.id);
+  const nameOf = (id) => names.get(id) || id;
+  const stepText = new Map((steps || []).map((step) => [step.n, step.text]));
+  const cite = (numbers) => numbers.map((number) => {
+    const text = trim(stepText.get(number) || "", CITE_CHARS);
+    return text ? `from the plan: "${text}"` : `from plan step ${number}`;
+  });
+  const out = ["## Reviewed in plangolin", ""];
+
+  const build = d.additions.filter((addition) => ok("add", addition.id));
+  const refused = new Set(d.additions.filter((addition) => !ok("add", addition.id)).map((addition) => addition.id));
+  const edges = d.connections.filter((connection) =>
+    ok("edge", connection.from, connection.to) && !refused.has(connection.from) && !refused.has(connection.to));
+  if (build.length || edges.length) {
+    out.push("BUILD");
+    for (const addition of build) {
+      out.push(`  ${addition.name} — ${addition.intent}`);
+      if (addition.dir) out.push(`    lives in: ${addition.dir}`);
+      if (addition.files && addition.files.length) {
+        out.push("    files:");
+        for (const file of addition.files) out.push(`      ${file}`);
+      }
+      for (const edge of edges.filter((connection) => connection.from === addition.id || connection.to === addition.id)) {
+        out.push(`    ${nameOf(edge.from)} ──▶ ${nameOf(edge.to)} (${edge.label})`);
+      }
+      for (const line of cite(addition.steps || [])) out.push(`    ${line}`);
+      out.push("");
+    }
+    const loose = edges.filter((edge) => !build.some((addition) => addition.id === edge.from || addition.id === edge.to));
+    for (const edge of loose) {
+      out.push(`  ${nameOf(edge.from)} ──▶ ${nameOf(edge.to)} (${edge.label})`);
+      for (const line of cite(edge.steps || [])) out.push(`    ${line}`);
+      out.push("");
+    }
+  }
+
+  const update = d.touches.filter((touch) => ok("touch", touch.id));
+  if (update.length) {
+    out.push("UPDATE");
+    for (const touch of update) {
+      out.push(`  ${nameOf(touch.id)} — ${touch.why}`);
+      for (const user of reach.filter((entry) => entry.via === touch.id)) {
+        out.push(`    Used by ${nameOf(user.id)} (${user.label})`);
+      }
+      for (const line of cite(touch.steps || [])) out.push(`    ${line}`);
+    }
+    out.push("");
+  }
+
+  const cut = [
+    ...d.additions.filter((addition) => !ok("add", addition.id)).map((addition) => `${addition.name} — ${addition.intent}`),
+    ...d.touches.filter((touch) => !ok("touch", touch.id)).map((touch) => `${nameOf(touch.id)} — ${touch.why}`),
+    ...d.connections.filter((connection) => !edges.includes(connection))
+      .map((connection) => `${nameOf(connection.from)} ──▶ ${nameOf(connection.to)} (${connection.label})`),
+  ];
+  if (cut.length) {
+    out.push("OUT OF SCOPE — the user removed these. Do not build them.");
+    for (const line of cut) out.push(`  ✗ ${line}`);
+    out.push("");
+  }
+
+  const involved = new Set([
+    ...build.map((addition) => addition.id), ...update.map((touch) => touch.id),
+    ...edges.flatMap((connection) => [connection.from, connection.to]),
+  ]);
+  const untouched = (nodes || []).filter((node) => !involved.has(node.id)).map((node) => node.name || node.id);
+  if (untouched.length) out.push("DO NOT TOUCH", `  ${untouched.join(", ")}`, "");
+
+  const kept = new Set(d.unplaced.flatMap((unplaced) => unplaced.steps)).size;
+  if (kept) {
+    out.push(kept === 1
+      ? "1 plan step changes nothing about the shape of the system — build it as written."
+      : `${kept} plan steps change nothing about the shape of the system — build them as written.`);
+  }
+
+  if (!build.length && !edges.length && !update.length) {
+    out.push("", "The user reviewed this plan and approved no change to the shape of the system. " +
+      "Build it as written, and add no blocks or connections beyond what is already there.");
+  }
+
+  if (truncated && (steps || []).length) {
+    out.push("", `Only the first ${steps.length} steps of this plan were reviewed in plangolin. ` +
+      "Nothing above rules on what comes after them.");
+  }
+
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
 export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accepted, truncated = false }) {
   if (!Array.isArray(impacts)) throw new TypeError("impacts must be an array");
   if (!(accepted instanceof Set)) throw new TypeError("accepted must be a Set");

@@ -10,7 +10,7 @@
 // without a network. They default to the real ones.
 
 import { splitSteps, stepCount } from "./plan-steps.js";
-import { buildBrief } from "./plan-brief.js";
+import { buildLegacyDeltaBrief } from "./plan-brief.js";
 import { planDelta } from "./plan-delta.js";
 import { planReach } from "./plan-reach.js";
 import { load, save, docFromMoves } from "./schema.js";
@@ -248,7 +248,7 @@ export function createPlanStore() {
       const renamed = new Map(
         posted.filter((n) => typeof n.name === "string" && n.name.trim()).map((n) => [n.id, n.name]));
       const known = review.nodes || [];
-      review.brief = buildBrief({
+      review.brief = buildLegacyDeltaBrief({
         nodes: known.length
           ? known.map((n) => (renamed.has(n.id) ? { ...n, name: renamed.get(n.id) } : n))
           : posted,

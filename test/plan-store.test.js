@@ -59,7 +59,7 @@ test("fill sends the browser one-hop users from the sheet used for the delta", a
   assert.equal(s.current().id, id);
 });
 
-test("a waiter is released by a resolve and gets the brief", async () => {
+test("a legacy delta review resolves through the transitional brief adapter", async () => {
   const s = createPlanStore();
   const { id } = s.open({ plan: PLAN });
   s.setDelta(id, { delta: DELTA, dropped: [] });
@@ -69,6 +69,7 @@ test("a waiter is released by a resolve and gets the brief", async () => {
   assert.equal(out.status, "resolved");
   assert.match(out.brief, /BUILD/);
   assert.match(out.brief, /Limiter/);
+  assert.match(out.brief, /1 plan step changes nothing about the shape of the system/);
 });
 
 test("resolving before anyone waits still answers the next waiter", async () => {
