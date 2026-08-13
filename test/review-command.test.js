@@ -55,7 +55,7 @@ test("approving prints a brief and exits 0", async () => {
   const holder = {};
   const open = (url) => { holder.url = url; approveVia(holder, [])(); };
   const { code, brief } = await runReview(root, "1. Add a limiter\n2. Wire it up\n", {
-    open, timeout: 2_000, plans: reviewableStore(),
+    open, timeout: 2_000, plans: reviewableStore(), port: 0,
   });
   assert.equal(code, 0);
   assert.match(brief, /Reviewed in plangolin/);
@@ -65,9 +65,14 @@ test("approving prints a brief and exits 0", async () => {
 // is the same outcome the user would have had without plangolin at all.
 test("no decision inside the window still returns, saying so", async () => {
   const root = await project();
-  const { code, brief } = await runReview(root, "1. Add a limiter\n", { open: () => {}, timeout: 300 });
+  let openedUrl = "";
+  const { code, brief } = await runReview(root, "1. Add a limiter\n", {
+    open: (url) => { openedUrl = url; }, timeout: 300, port: 0,
+  });
   assert.equal(code, 0);
   assert.match(brief, /not reviewed|as written/i);
+  assert.ok(Number(new URL(openedUrl).port) > 0);
+  assert.notEqual(new URL(openedUrl).port, "4300");
 });
 
 test("skipping returns without a brief", async () => {
@@ -88,7 +93,7 @@ test("skipping returns without a brief", async () => {
       }
     })();
   };
-  const { code, brief } = await runReview(root, "1. Add a limiter\n", { open, timeout: 20000 });
+  const { code, brief } = await runReview(root, "1. Add a limiter\n", { open, timeout: 20000, port: 0 });
   assert.equal(code, 0);
   assert.match(brief, /skipped|as written/i);
 });
@@ -105,6 +110,8 @@ test("the server is closed on the way out", async () => {
   const root = await project();
   const holder = {};
   const open = (url) => { holder.url = url; approveVia(holder, [])(); };
-  await runReview(root, "1. Add a limiter\n", { open, timeout: 2_000, plans: reviewableStore() });
+  await runReview(root, "1. Add a limiter\n", {
+    open, timeout: 2_000, plans: reviewableStore(), port: 0,
+  });
   await assert.rejects(fetch(holder.url + "/api/plan"));
 });

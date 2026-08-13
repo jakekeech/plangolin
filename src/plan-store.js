@@ -6,7 +6,7 @@ import { splitSteps, stepCount } from "./plan-steps.js";
 import { planImpact, remapImpactTargets, validateImpacts } from "./plan-impact.js";
 import { buildBrief } from "./plan-brief.js";
 import { planReach } from "./plan-reach.js";
-import { load, save, docFromMoves } from "./schema.js";
+import { load, saveIfEmpty, docFromMoves } from "./schema.js";
 import { buildFileGraph, fingerprintGraph } from "./filegraph.js";
 import {
   discoverProject,
@@ -21,6 +21,8 @@ import {
 } from "./preparation.js";
 
 export const COLD_IMPACT_CONCURRENCY = false;
+export const MAX_BROWSER_COUNT = 1_000_000;
+export const MAX_BROWSER_NOTE_LENGTH = 500;
 
 const WORKING_PHASES = new Set([
   "loading_system_map",
@@ -30,10 +32,16 @@ const WORKING_PHASES = new Set([
   "matching_plan",
   "arranging_review",
 ]);
+const PHASE_RANK = new Map([...WORKING_PHASES].map((phase, index) => [phase, index]));
 
 let counter = 0;
 const nextId = () => (++counter).toString(36) + Math.random().toString(36).slice(2, 6);
 const decided = (review) => review.status === "resolved" || review.status === "skipped";
+const boundedCount = (value) => Number.isFinite(value)
+  ? Math.min(MAX_BROWSER_COUNT, Math.max(0, Math.floor(value)))
+  : 0;
+const boundedNote = (value) => (typeof value === "string" ? value : "")
+  .replace(/\s+/g, " ").trim().slice(0, MAX_BROWSER_NOTE_LENGTH);
 
 const sheetNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
   .filter((node) => node && typeof node === "object" && typeof node.id === "string");
@@ -54,9 +62,7 @@ async function keepScan(ws, moves) {
   try {
     const scanned = docFromMoves(moves);
     if (!scanned.nodes.length) return;
-    const { doc } = await load(ws);
-    if (doc.nodes.length) return;
-    await save(ws, scanned);
+    await saveIfEmpty(ws, scanned);
   } catch {
     // An unwritable workspace still gets a transient review.
   }
@@ -129,18 +135,20 @@ export function createPlanStore(dependencies = {}) {
     const status = patch.status ?? review.status;
     const requestedPhase = patch.phase ?? review.phase;
     const phase = status === "working" && WORKING_PHASES.has(requestedPhase) ? requestedPhase : "";
+    const note = boundedNote(patch.note ?? review.note);
     const measuredElapsed = patch.elapsedMs ?? Math.max(0, deps.now() - review.attemptStartedAt);
     const elapsedMs = Math.max(review.elapsedMs || 0, measuredElapsed);
     const rawCounts = { ...review.counts, ...(patch.counts || {}) };
     const counts = {
-      files: Number.isFinite(rawCounts.files) ? rawCounts.files : 0,
-      links: Number.isFinite(rawCounts.links) ? rawCounts.links : 0,
-      components: Number.isFinite(rawCounts.components) ? rawCounts.components : 0,
-      steps: review.steps.length,
+      files: boundedCount(rawCounts.files),
+      links: boundedCount(rawCounts.links),
+      components: boundedCount(rawCounts.components),
+      steps: boundedCount(review.steps.length),
     };
     Object.assign(review, patch, {
       status,
       phase,
+      note,
       elapsedMs: Math.max(0, elapsedMs),
       counts,
       revision: review.revision + 1,
@@ -152,6 +160,7 @@ export function createPlanStore(dependencies = {}) {
   const adoptionProgress = (token, event = {}) => {
     const phase = WORKING_PHASES.has(event.phase) ? event.phase : review?.phase;
     if (!isCurrentAttempt(token) || review.status !== "working" || !phase) return;
+    if (PHASE_RANK.get(phase) < PHASE_RANK.get(review.phase)) return;
     publish({
       phase,
       counts: event.counts,
@@ -221,6 +230,7 @@ export function createPlanStore(dependencies = {}) {
         counts: { components: discovery.flatGroups.length },
       });
       const naming = name(discovery, { onProgress });
+      adoptionProgress(token, { phase: "matching_plan" });
       const matching = (options.impact || deps.impact)(
         (options.provisionalImpactContext || deps.provisionalImpactContext)(discovery),
         token.steps,
@@ -270,13 +280,15 @@ export function createPlanStore(dependencies = {}) {
       counts: { files: graph.files.length, links: graph.links.length },
     });
     const fingerprint = (options.fingerprintGraph || deps.fingerprintGraph)(graph);
+    const readExactPreparation = async () => {
+      try {
+        return await (options.readPreparation || deps.readPreparation)(ws.root, fingerprint);
+      } catch {
+        return null;
+      }
+    };
 
-    let prepared = null;
-    try {
-      prepared = await (options.readPreparation || deps.readPreparation)(ws.root, fingerprint);
-    } catch {
-      prepared = null;
-    }
+    let prepared = await readExactPreparation();
     if (prepared) return useMoves(ws, prepared);
 
     let startup = { live: false, ready: false };
@@ -295,6 +307,9 @@ export function createPlanStore(dependencies = {}) {
       }
       if (prepared) return useMoves(ws, prepared);
     }
+
+    prepared = await readExactPreparation();
+    if (prepared) return useMoves(ws, prepared);
 
     return acquireColdMap(ws, graph, options, token);
   };

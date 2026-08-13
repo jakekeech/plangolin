@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COLD_IMPACT_CONCURRENCY, createPlanStore } from "../src/plan-store.js";
+import {
+  COLD_IMPACT_CONCURRENCY,
+  MAX_BROWSER_COUNT,
+  MAX_BROWSER_NOTE_LENGTH,
+  createPlanStore,
+} from "../src/plan-store.js";
+import { emptyDoc, load as loadDoc, save as saveDoc } from "../src/schema.js";
 
 const PLAN = "1. Add a limiter\n2. Wire it up\n";
 const STEPS = [
@@ -210,6 +216,45 @@ test("validated complete and invalidated results become truthful outcomes", asyn
   invalidatedStore.open({ plan: PLAN });
   await invalidatedStore.fill(memWs(SYSTEM));
   assert.equal(invalidatedStore.current().status, "partial");
+});
+
+test("browser counts are safe bounded integers and provider notes are normalized and bounded", async () => {
+  const longMessage = `  Impact service\n unavailable   ${"private-detail ".repeat(100)}`;
+  const cases = [
+    {
+      raw: { files: -3.5, links: Infinity, components: MAX_BROWSER_COUNT + 50_000 },
+      expected: { files: 0, links: 0, components: MAX_BROWSER_COUNT, steps: 2 },
+    },
+    {
+      raw: { files: 3.9, links: 2.1, components: 1.5 },
+      expected: { files: 3, links: 2, components: 1, steps: 2 },
+    },
+  ];
+
+  for (const { raw, expected } of cases) {
+    const store = createPlanStore({
+      buildGraph: async () => ({ files: ["src/server.js"], links: [], capped: false }),
+      fingerprintGraph: () => "9".repeat(64),
+      readPreparation: async () => null,
+      preparationStartup: async () => ({ live: false, ready: false }),
+      discoverProject: async (_ws, { onProgress }) => {
+        await onProgress({ phase: "mapping_project", counts: raw });
+        const error = new Error(longMessage);
+        error.userFacing = true;
+        throw error;
+      },
+    });
+    store.open({ plan: PLAN });
+    await store.fill(memWs());
+    const state = store.forBrowser();
+
+    assert.deepEqual(state.counts, expected);
+    assert.ok(Object.values(state.counts).every((value) =>
+      Number.isSafeInteger(value) && value >= 0 && value <= MAX_BROWSER_COUNT));
+    assert.equal(state.note.length, MAX_BROWSER_NOTE_LENGTH);
+    assert.match(state.note, /^Impact service unavailable private-detail/);
+    assert.doesNotMatch(state.note, /\s{2,}|\n/);
+  }
 });
 
 test("call failures, malformed envelopes, and impact 404s stay errors with complete display coverage", async () => {
@@ -423,6 +468,153 @@ test("exact cached preparation is the one identity source for review, adoption, 
   assert.equal(store.takeScan(), null);
 });
 
+test("prepared scan persistence cannot overwrite an ordinary save that wins after its empty read", async () => {
+  const scanReadEntered = deferred();
+  const finishScanRead = deferred();
+  const files = new Map([
+    ["plangolin/system.json", JSON.stringify(emptyDoc())],
+    ["plangolin/layout.json", JSON.stringify({})],
+  ]);
+  let layoutReads = 0;
+  const ws = {
+    root: "/tmp/plangolin-plan-store-persistence-race",
+    async read(file) {
+      if (file === "plangolin/layout.json" && ++layoutReads === 2) {
+        scanReadEntered.resolve();
+        await finishScanRead.promise;
+      }
+      return files.get(file) ?? null;
+    },
+    async write(file, contents) { files.set(file, contents); },
+    async exists(file) { return files.has(file); },
+    async list() { return []; },
+  };
+  const moves = [{ t: "addNode", node: {
+    id: "scan", name: "Scanned Server", intent: "Serves requests.",
+  } }];
+  const store = createPlanStore({
+    buildGraph: async () => ({ files: ["src/server.js"], links: [], capped: false }),
+    fingerprintGraph: () => "6".repeat(64),
+    readPreparation: async () => ({ moves, dropped: [], provider: "prep", model: "prep" }),
+    impact: async () => readyResult({ impacts: [impact({ targetId: "scan" })] }),
+  });
+  store.open({ plan: PLAN });
+  const filling = store.fill(ws);
+  await scanReadEntered.promise;
+
+  const browserDoc = {
+    ...emptyDoc(),
+    nodes: [{ id: "browser", name: "Browser Server", kind: "", intent: "User-owned.", details: "" }],
+    layout: { browser: { x: 91, y: 92 } },
+  };
+  const browserSave = saveDoc(ws, browserDoc);
+  finishScanRead.resolve();
+  await Promise.all([browserSave, filling]);
+
+  const { doc } = await loadDoc(ws);
+  assert.deepEqual(doc.nodes.map((node) => node.id), ["browser"]);
+  assert.deepEqual(doc.layout, { browser: { x: 91, y: 92 } });
+  assert.deepEqual(store.current().nodes.map((node) => node.id), ["scan"],
+    "the in-memory review identity stays on its prepared moves");
+});
+
+test("a preparation completed after the initial miss wins before cold discovery", async () => {
+  const startupEntered = deferred();
+  const finishStartup = deferred();
+  const moves = [{ t: "addNode", node: {
+    id: "handoff-server", name: "Handoff Server", intent: "Serves requests.",
+  } }];
+  const prepared = { moves, dropped: [], provider: "prep", model: "prep" };
+  let available = null;
+  let reads = 0;
+  let discoveries = 0;
+  const store = createPlanStore({
+    buildGraph: async () => ({ files: ["src/server.js"], links: [], capped: false }),
+    fingerprintGraph: () => "7".repeat(64),
+    readPreparation: async () => { reads++; return available; },
+    preparationStartup: async () => {
+      startupEntered.resolve();
+      await finishStartup.promise;
+      return { live: false, ready: true };
+    },
+    discoverProject: async () => { discoveries++; throw new Error("must not start cold discovery"); },
+    impact: async (context) => {
+      assert.deepEqual(context.nodes.map((node) => node.id), ["handoff-server"]);
+      return readyResult({ impacts: [impact({ targetId: "handoff-server" })] });
+    },
+  });
+  store.open({ plan: PLAN });
+  const filling = store.fill(memWs());
+  await startupEntered.promise;
+  available = prepared;
+  finishStartup.resolve();
+  await filling;
+
+  assert.equal(store.current().status, "ready");
+  assert.equal(reads, 2);
+  assert.equal(discoveries, 0);
+  assert.deepEqual((await store.takeScan()).moves, moves);
+});
+
+test("a preparation completed after a null follow wins before cold discovery", async () => {
+  const followEntered = deferred();
+  const finishFollow = deferred();
+  const coldDecision = deferred();
+  const publishCompletion = deferred();
+  const moves = [{ t: "addNode", node: {
+    id: "followed-server", name: "Followed Server", intent: "Serves requests.",
+  } }];
+  const prepared = { moves, dropped: [], provider: "prep", model: "prep" };
+  let reads = 0;
+  let discoveries = 0;
+  const store = createPlanStore({
+    buildGraph: async () => ({ files: ["src/server.js"], links: [], capped: false }),
+    fingerprintGraph: () => "8".repeat(64),
+    readPreparation: async () => {
+      reads++;
+      if (reads === 1) return null;
+      coldDecision.resolve("exact-read");
+      await publishCompletion.promise;
+      return prepared;
+    },
+    preparationStartup: async () => ({ live: true, ready: true }),
+    followPreparation: async () => {
+      followEntered.resolve();
+      await finishFollow.promise;
+      return null;
+    },
+    discoverProject: async () => {
+      discoveries++;
+      coldDecision.resolve("cold-discovery");
+      return {
+        graph: { files: ["src/server.js"], links: [], capped: false },
+        groups: [], flatGroups: [], dependencies: new Map(), excerpts: new Map(), dropped: [],
+      };
+    },
+    nameProject: async () => ({
+      blocks: [], labels: new Map(), dropped: [], provider: "cold", model: "cold",
+    }),
+    movesFromDiscovery: () => ({ moves, idFor: new Map() }),
+    impact: async (context) => {
+      assert.deepEqual(context.nodes.map((node) => node.id), ["followed-server"]);
+      return readyResult({ impacts: [impact({ targetId: "followed-server" })] });
+    },
+  });
+  store.open({ plan: PLAN });
+  const filling = store.fill(memWs());
+  await followEntered.promise;
+  finishFollow.resolve();
+  const handoff = await coldDecision.promise;
+  if (handoff === "exact-read") publishCompletion.resolve();
+  await filling;
+
+  assert.equal(handoff, "exact-read");
+  assert.equal(store.current().status, "ready");
+  assert.equal(reads, 2);
+  assert.equal(discoveries, 0);
+  assert.deepEqual((await store.takeScan()).moves, moves);
+});
+
 test("a matching live preparation is followed with progress and no duplicate adoption", async () => {
   const fingerprint = "d".repeat(64);
   const moves = NODES.map((node) => ({ t: "addNode", node }));
@@ -470,6 +662,7 @@ test("a matching live preparation is followed with progress and no duplicate ado
 test("the cold concurrency quality gate defaults off and keeps matching serial", async () => {
   assert.equal(COLD_IMPACT_CONCURRENCY, false);
   const naming = deferred();
+  const nameStarted = deferred();
   const events = [];
   const graph = { files: ["src/server.js"], links: [], capped: false };
   const discovery = {
@@ -483,7 +676,11 @@ test("the cold concurrency quality gate defaults off and keeps matching serial",
     readPreparation: async () => null,
     preparationStartup: async () => ({ live: false, ready: false }),
     discoverProject: async () => discovery,
-    nameProject: async () => { events.push("name:start"); return naming.promise; },
+    nameProject: async () => {
+      events.push("name:start");
+      nameStarted.resolve();
+      return naming.promise;
+    },
     movesFromDiscovery: () => ({
       moves: [{ t: "addNode", node: NODES[0] }],
       idFor: new Map([["group:server", "server"]]),
@@ -496,7 +693,7 @@ test("the cold concurrency quality gate defaults off and keeps matching serial",
   });
   store.open({ plan: PLAN });
   const filling = store.fill(memWs());
-  await drainMicrotasks();
+  await nameStarted.promise;
   assert.deepEqual(events, ["name:start"]);
 
   naming.resolve({ blocks: [], labels: new Map(), dropped: [], provider: "test", model: "test" });
@@ -508,6 +705,7 @@ test("the cold concurrency quality gate defaults off and keeps matching serial",
 test("enabled cold concurrency has call depth group then max of naming and provisional matching", async () => {
   const naming = deferred();
   const matching = deferred();
+  const matchingStarted = deferred();
   const events = [];
   const graph = { files: ["src/server.js"], links: [], capped: false };
   const discovery = {
@@ -519,14 +717,19 @@ test("enabled cold concurrency has call depth group then max of naming and provi
     dependencies: new Map([["group:server", []]]), excerpts: new Map(), dropped: [],
   };
   let impactCalls = 0;
-  const store = createPlanStore({
+  let reportNamingProgress;
+  const { store, states } = recordingStore({
     coldImpactConcurrency: true,
     buildGraph: async () => graph,
     fingerprintGraph: () => "f".repeat(64),
     readPreparation: async () => null,
     preparationStartup: async () => ({ live: false, ready: false }),
     discoverProject: async () => { events.push("group:done"); return discovery; },
-    nameProject: async () => { events.push("name:start"); return naming.promise; },
+    nameProject: async (_discovery, { onProgress }) => {
+      events.push("name:start");
+      reportNamingProgress = onProgress;
+      return naming.promise;
+    },
     movesFromDiscovery: () => ({
       moves: [{ t: "addNode", node: NODES[0] }],
       idFor: new Map([["group:server", "server"]]),
@@ -534,6 +737,8 @@ test("enabled cold concurrency has call depth group then max of naming and provi
     impact: async (context, _steps, options) => {
       impactCalls++;
       events.push("match:start");
+      matchingStarted.resolve();
+      assert.equal(store.current().phase, "matching_plan");
       assert.equal(options.deferValidation, true);
       assert.equal(context.nodes.length, 0);
       assert.equal(context.groups[0].ref, "group:server");
@@ -542,7 +747,7 @@ test("enabled cold concurrency has call depth group then max of naming and provi
   });
   store.open({ plan: PLAN });
   const filling = store.fill(memWs());
-  await drainMicrotasks();
+  await matchingStarted.promise;
 
   assert.deepEqual(events, ["group:done", "name:start", "match:start"]);
   assert.equal(store.current().status, "working");
@@ -551,8 +756,10 @@ test("enabled cold concurrency has call depth group then max of naming and provi
     provider: "test-provider",
     model: "test-model",
   });
-  await drainMicrotasks();
+  await matching.promise;
   assert.equal(store.current().status, "working", "naming remains on the critical path");
+  await reportNamingProgress({ phase: "naming_and_matching", counts: { components: 1 } });
+  assert.equal(store.current().phase, "matching_plan", "late naming progress cannot move the phase backward");
 
   naming.resolve({
     blocks: [{ groupId: "group:server", id: "server", name: "Server", kind: "", intent: "Serves.", details: "" }],
@@ -564,6 +771,9 @@ test("enabled cold concurrency has call depth group then max of naming and provi
   assert.equal(store.current().status, "ready");
   assert.equal(store.current().impacts[0].targetId, "server");
   assert.deepEqual(store.current().nodes.map((node) => node.id), ["server"]);
+  assert.deepEqual(phases(states), [
+    "loading_system_map", "naming_and_matching", "matching_plan", "arranging_review",
+  ]);
 });
 
 test("stale progress and completion from a failed attempt cannot overwrite its retry", async () => {

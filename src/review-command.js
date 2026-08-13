@@ -40,6 +40,7 @@ export async function runReview(root, planText, {
   open = announce,
   timeout = TEN_MINUTES,
   plans = createPlanStore(),
+  port = Number(process.env.PLANGOLIN_REVIEW_PORT || 4300),
 } = {}) {
   const plan = String(planText || "").trim();
   if (!plan) {
@@ -58,7 +59,7 @@ export async function runReview(root, planText, {
      port has to be guessable in advance: the skill tells the reader where to
      look before it starts waiting. Walks upward if something already holds it,
      the same way `plangolin` itself does. */
-  const wanted = Number(process.env.PLANGOLIN_REVIEW_PORT || 4300);
+  const wanted = port;
   await new Promise((done, fail) => {
     let attempts = 12;
     const tryPort = (port) => {

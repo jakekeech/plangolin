@@ -955,6 +955,55 @@ test("followPreparation reports bounded live progress while retaining exact resu
   assert.deepEqual(await following, await running);
 });
 
+test("followPreparation completion never waits for a progress observer to settle", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const doubles = preparationDoubles();
+  const nameStarted = deferred();
+  const finishName = deferred();
+  const observerStarted = deferred();
+  const observerNeverSettles = deferred();
+  const sleepEntered = deferred();
+  const continueFollowing = deferred();
+  const running = runPreparation(root, {
+    cacheRoot,
+    ws: { root },
+    ...doubles,
+    name: async (_discovery, { onProgress }) => {
+      await onProgress({ phase: "naming_and_matching", counts: { components: 1 } });
+      nameStarted.resolve();
+      await finishName.promise;
+      return doubles.described;
+    },
+  });
+  await nameStarted.promise;
+
+  const following = followPreparation(root, fingerprintGraph(doubles.graph), {
+    cacheRoot,
+    timeoutMs: 1_000,
+    sleep: async () => {
+      sleepEntered.resolve();
+      await continueFollowing.promise;
+    },
+    onProgress() {
+      observerStarted.resolve();
+      return observerNeverSettles.promise;
+    },
+  });
+
+  await observerStarted.promise;
+  const loopState = await Promise.race([
+    sleepEntered.promise.then(() => "continued"),
+    new Promise((resolve) => setImmediate(() => resolve("observer-blocked"))),
+  ]);
+  try {
+    assert.equal(loopState, "continued");
+  } finally {
+    finishName.resolve();
+    continueFollowing.resolve();
+  }
+  assert.deepEqual(await following, await running);
+});
+
 test("stale and dead locks are replaced without deleting another cache entry", async (t) => {
   for (const scenario of ["stale", "dead"]) {
     const { root, cacheRoot } = await temporaryProject(t, `plangolin-${scenario}-lock-`);

@@ -472,10 +472,10 @@ async function livePreparationProgress(root, lease, options = {}) {
   };
 }
 
-async function reportFollowProgress(onProgress, progress) {
+function reportFollowProgress(onProgress, progress) {
   if (!onProgress || !progress) return;
   try {
-    await onProgress(progress);
+    Promise.resolve(onProgress(progress)).catch(() => {});
   } catch {
     // A progress observer cannot interrupt preparation following.
   }
@@ -498,7 +498,7 @@ export async function followPreparation(root, fingerprint, options = {}) {
     if (!await leaseIsLive(root, lease, options)) return readPreparation(root, fingerprint, options);
     const progress = await livePreparationProgress(root, lease, options);
     if (progress && progress.revision > reportedRevision) {
-      await reportFollowProgress(options.onProgress, progress);
+      reportFollowProgress(options.onProgress, progress);
       reportedRevision = progress.revision;
     }
     if (now() - began >= timeoutMs) return null;
