@@ -21,6 +21,15 @@ import { describeGroups } from "./describe.js";
 const MAX_EXCERPT_FILES = 4;
 const MAX_EXCERPT_CHARS = 1400;
 
+async function reportProgress(onProgress, event) {
+  if (!onProgress) return;
+  try {
+    await onProgress(event);
+  } catch {
+    // Progress is diagnostic metadata, never control flow for adoption.
+  }
+}
+
 /** Every group, flattened, each carrying its own files and those of its
     descendants — a container's dependencies are its contents'. */
 function flatten(groups) {
@@ -142,7 +151,7 @@ export async function survey(ws) {
 
 export async function discoverProject(ws, { graph: injectedGraph, onProgress } = {}) {
   const graph = injectedGraph === undefined ? await buildFileGraph(ws) : injectedGraph;
-  await onProgress?.({
+  await reportProgress(onProgress, {
     phase: "mapping_project",
     counts: { files: graph.files.length, links: graph.links.length },
   });
@@ -152,7 +161,10 @@ export async function discoverProject(ws, { graph: injectedGraph, onProgress } =
   if (!graph.files.length) {
     const groups = [];
     const flatGroups = [];
-    await onProgress?.({ phase: "grouping_components", counts: { components: 0 } });
+    await reportProgress(onProgress, {
+      phase: "grouping_components",
+      counts: { components: 0 },
+    });
     return {
       graph,
       groups,
@@ -193,7 +205,7 @@ export async function discoverProject(ws, { graph: injectedGraph, onProgress } =
     for (const file of g.files.slice(0, MAX_EXCERPT_FILES)) await readInto(file);
   }
 
-  await onProgress?.({
+  await reportProgress(onProgress, {
     phase: "grouping_components",
     counts: { components: flatGroups.length },
   });
@@ -205,7 +217,7 @@ export async function nameProject(
   discovery,
   { describe = describeGroups, onProgress } = {},
 ) {
-  await onProgress?.({
+  await reportProgress(onProgress, {
     phase: "naming_and_matching",
     counts: { components: discovery.flatGroups.length },
   });

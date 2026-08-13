@@ -390,6 +390,78 @@ test("adopt composes discovery and naming into the legacy move result", async (t
   });
 });
 
+test("adopt ignores synchronous and rejected progress observer failures", async (t) => {
+  stubGrouping(t);
+  const phases = [];
+  const result = await adopt(excerptWorkspace(), {
+    graph: GRAPH,
+    describe: async () => DESCRIBED,
+    onProgress(event) {
+      phases.push(event.phase);
+      if (event.phase === "grouping_components") {
+        return Promise.reject(new Error("private progress sink rejection"));
+      }
+      throw new Error("private progress sink throw");
+    },
+  });
+
+  assert.deepEqual(phases, [
+    "mapping_project", "grouping_components", "naming_and_matching",
+  ]);
+  assert.deepEqual(result, {
+    moves: EXPECTED_MOVES,
+    dropped: ["one harmless naming warning"],
+    provider: "test",
+    model: "name-model",
+  });
+  assert.doesNotMatch(result.dropped.join(" "), /private progress sink/);
+});
+
+test("empty discovery ignores a rejected grouping progress observer", async () => {
+  const phases = [];
+  const discovery = await discoverProject({
+    async list() { throw new Error("the injected graph must be reused"); },
+    async read() { return null; },
+  }, {
+    graph: { files: [], links: [], capped: false },
+    onProgress(event) {
+      phases.push(event.phase);
+      if (event.phase === "grouping_components") {
+        return Promise.reject(new Error("private empty-project progress rejection"));
+      }
+    },
+  });
+
+  assert.deepEqual(phases, ["mapping_project", "grouping_components"]);
+  assert.deepEqual(discovery.dropped, ["no source files found"]);
+  assert.deepEqual(discovery.groups, []);
+  assert.deepEqual(discovery.flatGroups, []);
+});
+
+test("nameProject ignores a rejected progress observer without changing naming metadata", async () => {
+  let descriptions = 0;
+  const discovery = {
+    graph: GRAPH,
+    groups: [
+      { id: "g1", why: "serves HTTP requests", files: ["api/server.js"], children: [] },
+      { id: "g2", why: "persists records", files: ["data/store.js"], children: [] },
+    ],
+    flatGroups: [{ id: "g1" }, { id: "g2" }],
+    dependencies: new Map([["g1", ["g2"]], ["g2", []]]),
+    excerpts: new Map(),
+    dropped: [],
+  };
+
+  const described = await nameProject(discovery, {
+    describe: async () => { descriptions += 1; return DESCRIBED; },
+    onProgress: async () => { throw new Error("private naming progress rejection"); },
+  });
+
+  assert.equal(descriptions, 1);
+  assert.deepEqual(described, DESCRIBED);
+  assert.doesNotMatch(described.dropped.join(" "), /private naming progress/);
+});
+
 test("adopt preserves the empty-project result without calling naming", async () => {
   let descriptions = 0;
   const result = await adopt({
