@@ -1,6 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { dockPlanAndHint, planHintPosition } from "../app/plan-hint-motion.js";
+
+const APP = readFileSync(new URL("../app/app.js", import.meta.url), "utf8");
+const HTML = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
+const CSS = readFileSync(new URL("../app/app.css", import.meta.url), "utf8");
+
+function functionSource(source, name) {
+  const start = source.indexOf("function " + name + "(");
+  assert.notEqual(start, -1, name + " exists");
+  const brace = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = brace; index < source.length; index++) {
+    if (source[index] === "{") depth++;
+    if (source[index] === "}" && --depth === 0) return source.slice(start, index + 1);
+  }
+  assert.fail(name + " has a complete body");
+}
 
 test("docking assigns the panel and below-panel hint destinations together", () => {
   const panel = { style: {} };
@@ -30,4 +47,59 @@ test("a low dock puts the hint above the panel", () => {
     hintHeight: 24,
     canvasHeight: 500,
   }), { left: 40, top: 238 });
+});
+
+test("the browser consumes the impact projection instead of legacy deltas", () => {
+  assert.match(APP, /from "\.\/plan-projection\.js"/);
+  assert.doesNotMatch(APP, /plan\.delta/);
+  assert.doesNotMatch(APP, /\bplanKey\b/);
+  assert.match(APP, /buildPlanProjection\(plan, S\.nodes, S\.edges\)/);
+  assert.match(
+    functionSource(APP, "currentLevelNodes"),
+    /planViewNodes\(viewRoot, S\.nodes, planProjection\)/,
+  );
+});
+
+test("temporary hierarchy reuses viewRoot navigation without resetting decisions", () => {
+  assert.match(functionSource(APP, "enterNode"), /hasViewChildren\(id\)/);
+  assert.match(functionSource(APP, "goToView"), /viewRoot = id \|\| null/);
+  assert.doesNotMatch(functionSource(APP, "goToView"), /planCut\s*=/);
+  assert.match(APP, /nodeEl\.dataset\.enterable === "true"/);
+  assert.match(APP, /ev\.key === "Enter"/);
+  assert.match(APP, /enterNode\(nodeEl\.dataset\.id\)/);
+});
+
+test("temporary cards are focusable plan controls with no ports", () => {
+  const renderer = functionSource(APP, "renderTemporaryNode");
+  assert.match(renderer, /plan-card/);
+  assert.match(renderer, /tabIndex = 0/);
+  assert.match(renderer, /data-plan-toggle/);
+  assert.match(renderer, /data-impact-key/);
+  assert.doesNotMatch(renderer, /class="port"/);
+  assert.match(CSS, /\.node\.plan-card/);
+  assert.match(CSS, /\.node\.plan-group/);
+  assert.match(CSS, /\.node\.plan-removal/);
+  assert.match(CSS, /\.node\.plan-responsibility/);
+  assert.match(CSS, /\.wire\.plan-disconnection/);
+});
+
+test("the plan panel renders literal cited steps, files, and symbols", () => {
+  assert.match(HTML, /id="plan-evidence"/);
+  const evidence = functionSource(APP, "planEvidenceHtml");
+  assert.match(evidence, /Plan steps/);
+  assert.match(evidence, /Files/);
+  assert.match(evidence, /Symbols/);
+  assert.match(evidence, /stepTexts/);
+  assert.match(evidence, /s\.files/);
+  assert.match(evidence, /s\.symbols/);
+  assert.doesNotMatch(evidence, /createElement/);
+});
+
+test("stepper, cards, annotations, and edges decide by the same impact key", () => {
+  const decide = functionSource(APP, "planDecide");
+  assert.match(decide, /setImpactDecision\(planCut, impactKey, cutIt\)/);
+  assert.match(functionSource(APP, "selectPlanImpact"), /impact\.key === impactKey/);
+  assert.match(APP, /acceptedImpactKeys\(plan, planCut\)/);
+  assert.match(APP, /data-impact-key/);
+  assert.match(APP, /dataset\.impactKey/);
 });
