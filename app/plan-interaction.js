@@ -32,6 +32,25 @@ export function reviewRenderStamp(review) {
 export function applyReviewRevision(previousStamp, review, rebuild) {
   const stamp = reviewRenderStamp(review);
   if (stamp === previousStamp) return { changed: false, stamp };
+  let previous = null;
+  try {
+    const parsed = JSON.parse(previousStamp);
+    if (Array.isArray(parsed) && parsed.length === 3) previous = parsed;
+  } catch {
+    previous = null;
+  }
+  if (previous && review &&
+      previous[0] === String(review.id || "") &&
+      previous[1] === String(review.status || "")) {
+    const previousRevision = previous[2];
+    const nextRevision = review.revision ?? null;
+    const strictlyHigher = typeof previousRevision === "number" &&
+      typeof nextRevision === "number" && nextRevision > previousRevision;
+    const introducesRevision = previousRevision == null && typeof nextRevision === "number";
+    if (!strictlyHigher && !introducesRevision) {
+      return { changed: false, stamp: previousStamp };
+    }
+  }
   const value = rebuild(review);
   return { changed: true, stamp, value };
 }
@@ -122,21 +141,40 @@ export function handleTemporaryActivation(event, element, state, callbacks) {
   if (event && event.type === "keydown") {
     if (event.key !== "Enter") return { handled: false, action: "", lastClick };
     event.preventDefault();
+    callbacks.focus?.(impactKey, id);
     if (enterable) {
       callbacks.enter(id);
-      return { handled: true, action: "enter", lastClick };
+      return { handled: true, action: "enter", lastClick: null };
     }
     if (impactKey) {
       callbacks.select(impactKey, id);
-      return { handled: true, action: "select", lastClick };
+      return { handled: true, action: "select", lastClick: null };
     }
     return { handled: false, action: "", lastClick };
   }
 
   if (event && event.type === "mousedown") {
+    element?.focus?.({ preventScroll: true });
+    callbacks.focus?.(impactKey, id);
+    return { handled: true, action: "focus", lastClick };
+  }
+
+  if (event && event.type === "click") {
     const now = Number.isFinite(state && state.now) ? state.now : Date.now();
+    if (!event.detail) {
+      element?.focus?.({ preventScroll: true });
+      callbacks.focus?.(impactKey, id);
+      if (enterable) {
+        callbacks.enter(id);
+        return { handled: true, action: "enter", lastClick: null };
+      }
+    }
     if (enterable && lastClick && lastClick.id === id && now - lastClick.time < 400) {
       event.preventDefault();
+      callbacks.enter(id);
+      return { handled: true, action: "enter", lastClick: null };
+    }
+    if (enterable && !impactKey) {
       callbacks.enter(id);
       return { handled: true, action: "enter", lastClick: null };
     }
@@ -151,17 +189,80 @@ export function handleTemporaryActivation(event, element, state, callbacks) {
   return { handled: false, action: "", lastClick };
 }
 
-export function restoreTemporaryFocus(root, id) {
-  if (!root || !id) return false;
-  const replacement = [...root.querySelectorAll("[data-plan-action]")]
-    .find((element) => element.dataset && element.dataset.planId === id);
+export function capturePlanFocus(element) {
+  const control = element?.closest?.("[data-plan-toggle]");
+  if (control) {
+    return {
+      kind: "control",
+      ownerId: String(control.dataset?.planOwnerId || ""),
+      impactKey: String(control.dataset?.impactKey || ""),
+      control: String(control.dataset?.planToggle || ""),
+    };
+  }
+  const action = element?.closest?.("[data-plan-action]");
+  if (action) return { kind: "action", id: String(action.dataset?.planId || "") };
+  return null;
+}
+
+export function restorePlanFocus(root, token) {
+  if (!root || !token) return false;
+  const replacement = [...root.querySelectorAll("[data-plan-action], [data-plan-toggle]")]
+    .find((element) => {
+      if (!element.dataset) return false;
+      if (token.kind === "action") {
+        return !!element.dataset.planAction && element.dataset.planId === token.id;
+      }
+      if (token.kind === "control") {
+        return element.dataset.planToggle === token.control &&
+          element.dataset.planOwnerId === token.ownerId &&
+          element.dataset.impactKey === token.impactKey;
+      }
+      return false;
+    });
   if (!replacement || typeof replacement.focus !== "function") return false;
   replacement.focus({ preventScroll: true });
   return true;
 }
 
+export function restoreTemporaryFocus(root, id) {
+  return restorePlanFocus(root, id ? { kind: "action", id } : null);
+}
+
 export function navigatePlanState(state, targetId) {
   return { ...state, viewRoot: targetId || null };
+}
+
+export function selectTemporaryPlanState(state, planSelectedId) {
+  return {
+    ...state,
+    persistedSelection: null,
+    planSelectedId: planSelectedId || null,
+    inspectorOpen: false,
+    hunkView: null,
+  };
+}
+
+export function handlePlanDeleteBoundary(event, state) {
+  if (!event || (event.key !== "Delete" && event.key !== "Backspace")) {
+    return { handled: false, state };
+  }
+
+  const target = event.target;
+  const tagName = String(target?.tagName || "").toUpperCase();
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(tagName) || target?.isContentEditable) {
+    return { handled: false, state };
+  }
+
+  const targetsPlanAction = Boolean(target?.closest?.("[data-plan-action]"));
+  if (!targetsPlanAction && !state?.planSelectedId) {
+    return { handled: false, state };
+  }
+
+  event.preventDefault?.();
+  return {
+    handled: true,
+    state: selectTemporaryPlanState(state || {}, state?.planSelectedId),
+  };
 }
 
 export function persistentGraphActionAllowed(action, persistedNodes, projection) {

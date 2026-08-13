@@ -5,13 +5,16 @@ import {
   applyReviewRevision,
   buildPersistedSavePayload,
   buildPlanResolvePayload,
+  capturePlanFocus,
+  handlePlanDeleteBoundary,
   handleTemporaryActivation,
   normalizePlanNavigation,
   navigatePlanState,
   planEvidenceHtml,
   persistentGraphActionAllowed,
   projectedEdgeEndpoints,
-  restoreTemporaryFocus,
+  restorePlanFocus,
+  selectTemporaryPlanState,
 } from "../app/plan-interaction.js";
 import { setImpactDecision } from "../app/plan-projection.js";
 
@@ -27,6 +30,11 @@ class FakeElement {
   getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
   removeAttribute(name) { this.attributes.delete(name); }
   focus() { this.focusCount++; }
+  closest(selector) {
+    if (selector === "[data-plan-toggle]" && this.dataset.planToggle) return this;
+    if (selector === "[data-plan-action]" && this.dataset.planAction) return this;
+    return null;
+  }
 }
 
 const persistedNodes = [
@@ -77,6 +85,32 @@ test("a higher revision rebuilds a partial review with the same id and status ex
   assert.equal(second.changed, true);
   assert.equal(unchanged.changed, false);
   assert.deepEqual(rebuilt, [7, 8]);
+});
+
+test("an out-of-order revision is ignored without lowering the accepted stamp", () => {
+  const rebuilt = [];
+  const current = applyReviewRevision("", {
+    id: "review:1", status: "partial", revision: 8,
+  }, (review) => rebuilt.push(review.revision));
+  const stale = applyReviewRevision(current.stamp, {
+    id: "review:1", status: "partial", revision: 7,
+  }, () => rebuilt.push("stale"));
+  const higher = applyReviewRevision(stale.stamp, {
+    id: "review:1", status: "partial", revision: 9,
+  }, (review) => rebuilt.push(review.revision));
+  const newStatus = applyReviewRevision(higher.stamp, {
+    id: "review:1", status: "complete", revision: 1,
+  }, () => rebuilt.push("status"));
+  const newReview = applyReviewRevision(newStatus.stamp, {
+    id: "review:2", status: "complete", revision: 0,
+  }, () => rebuilt.push("id"));
+
+  assert.equal(stale.changed, false);
+  assert.equal(stale.stamp, current.stamp);
+  assert.equal(higher.changed, true);
+  assert.equal(newStatus.changed, true);
+  assert.equal(newReview.changed, true);
+  assert.deepEqual(rebuilt, [8, 9, "status", "id"]);
 });
 
 test("a removed proposed addition falls back to its nearest persisted ancestor", () => {
@@ -234,48 +268,175 @@ test("Enter opens an enterable temporary node and selects a temporary card", () 
   assert.deepEqual(selected, [["impact:2", card.dataset.planId]]);
 });
 
-test("two presses inside the double-click window open a temporary group", () => {
-  const group = new FakeElement();
-  applyTemporaryNodeAccessibility(group, {
-    id: "plan:review-1:group:project-support",
-    planType: "group",
-    name: "Project Support",
+test("mousedown focuses and click activates a temporary card exactly once", () => {
+  const card = new FakeElement();
+  applyTemporaryNodeAccessibility(card, {
+    id: "plan:review-1:impact%3A1:card",
+    planType: "card",
+    name: "Change limiter",
+    impactKey: "impact:1",
+  }, { enterable: false, selected: false });
+  const focused = [];
+  const selected = [];
+  const callbacks = {
+    focus: (impactKey, id) => focused.push([impactKey, id]),
+    enter() { throw new Error("card must not enter"); },
+    select: (impactKey, id) => selected.push([impactKey, id]),
+  };
+
+  const pressed = handleTemporaryActivation({ type: "mousedown" }, card, {}, callbacks);
+  const clicked = handleTemporaryActivation({ type: "click", detail: 1 }, card, {
+    now: 1000,
+    lastClick: pressed.lastClick,
+  }, callbacks);
+
+  assert.equal(pressed.action, "focus");
+  assert.equal(clicked.action, "select");
+  assert.equal(card.focusCount, 1);
+  assert.deepEqual(focused, [["impact:1", card.dataset.planId]]);
+  assert.deepEqual(selected, [["impact:1", card.dataset.planId]]);
+});
+
+test("a Space-synthesized click activates a temporary card exactly once", () => {
+  const card = new FakeElement();
+  applyTemporaryNodeAccessibility(card, {
+    id: "plan:review-1:impact%3A1:card",
+    planType: "card",
+    name: "Change limiter",
+    impactKey: "impact:1",
+  }, { enterable: false, selected: false });
+  let focusCount = 0;
+  let activationCount = 0;
+  const callbacks = {
+    focus: () => focusCount++,
+    enter() {},
+    select: () => activationCount++,
+  };
+
+  const keyResult = handleTemporaryActivation({ type: "keydown", key: " " }, card, {}, callbacks);
+  const clickResult = handleTemporaryActivation({ type: "click", detail: 0 }, card, {
+    now: 1000,
+    lastClick: keyResult.lastClick,
+  }, callbacks);
+
+  assert.equal(keyResult.handled, false);
+  assert.equal(clickResult.action, "select");
+  assert.equal(focusCount, 1);
+  assert.equal(activationCount, 1);
+});
+
+test("a Space-synthesized click opens an enterable temporary node exactly once", () => {
+  const addition = new FakeElement();
+  applyTemporaryNodeAccessibility(addition, {
+    id: "plan:review-1:impact%3A1:addition:limiter",
+    planType: "addition",
+    name: "Limiter",
+    impactKey: "impact:1",
+  }, { enterable: true, selected: false });
+  let enterCount = 0;
+  let selectCount = 0;
+  const callbacks = {
+    focus() {},
+    enter: () => enterCount++,
+    select: () => selectCount++,
+  };
+
+  const keyResult = handleTemporaryActivation({ type: "keydown", key: " " }, addition, {}, callbacks);
+  const clickResult = handleTemporaryActivation({ type: "click", detail: 0 }, addition, {
+    now: 1000, lastClick: keyResult.lastClick,
+  }, callbacks);
+
+  assert.equal(keyResult.handled, false);
+  assert.equal(clickResult.action, "enter");
+  assert.equal(enterCount, 1);
+  assert.equal(selectCount, 0);
+});
+
+test("a manual double click navigates an enterable proposed node exactly once", () => {
+  const addition = new FakeElement();
+  applyTemporaryNodeAccessibility(addition, {
+    id: "plan:review-1:impact%3A1:addition:limiter",
+    planType: "addition",
+    name: "Limiter",
+    impactKey: "impact:1",
   }, { enterable: true, selected: false });
   const entered = [];
-  const first = handleTemporaryActivation({ type: "mousedown", preventDefault() {} }, group, {
+  const selected = [];
+  const callbacks = {
+    focus() {},
+    enter: (id) => entered.push(id),
+    select: (impactKey, id) => selected.push([impactKey, id]),
+  };
+  const first = handleTemporaryActivation({ type: "click", detail: 1 }, addition, {
     now: 1000, lastClick: null,
-  }, { enter: (id) => entered.push(id), select() {} });
+  }, callbacks);
   const secondEvent = {
-    type: "mousedown", prevented: false,
+    type: "click", detail: 2, prevented: false,
     preventDefault() { this.prevented = true; },
   };
-  const second = handleTemporaryActivation(secondEvent, group, {
+  const second = handleTemporaryActivation(secondEvent, addition, {
     now: 1200, lastClick: first.lastClick,
-  }, { enter: (id) => entered.push(id), select() {} });
+  }, callbacks);
 
-  assert.deepEqual(entered, [group.dataset.planId]);
+  assert.deepEqual(selected, [["impact:1", addition.dataset.planId]]);
+  assert.deepEqual(entered, [addition.dataset.planId]);
   assert.equal(secondEvent.prevented, true);
   assert.equal(second.lastClick, null);
 });
 
-test("focus restoration targets the replacement action after a synchronous redraw", () => {
+test("focus restoration targets a replacement temporary action after synchronous redraw", () => {
   const oldAction = new FakeElement();
+  oldAction.dataset.planAction = "true";
   oldAction.dataset.planId = "plan:review-1:impact%3A1:card";
   const replacement = new FakeElement();
+  replacement.dataset.planAction = "true";
   replacement.dataset.planId = oldAction.dataset.planId;
   const other = new FakeElement();
+  other.dataset.planAction = "true";
   other.dataset.planId = "plan:review-1:impact%3A2:card";
   const redrawnWorld = {
     querySelectorAll(selector) {
-      assert.equal(selector, "[data-plan-action]");
+      assert.equal(selector, "[data-plan-action], [data-plan-toggle]");
       return [other, replacement];
     },
   };
 
-  assert.equal(restoreTemporaryFocus(redrawnWorld, oldAction.dataset.planId), true);
+  const token = capturePlanFocus(oldAction);
+  assert.deepEqual(token, { kind: "action", id: oldAction.dataset.planId });
+  assert.equal(restorePlanFocus(redrawnWorld, token), true);
   assert.equal(replacement.focusCount, 1);
   assert.equal(other.focusCount, 0);
-  assert.equal(restoreTemporaryFocus(redrawnWorld, "missing"), false);
+  assert.equal(restorePlanFocus(redrawnWorld, { kind: "action", id: "missing" }), false);
+});
+
+test("focus restoration targets the same persisted annotation control after redraw", () => {
+  const oldControl = new FakeElement();
+  oldControl.dataset.planToggle = "cut";
+  oldControl.dataset.planOwnerId = "api";
+  oldControl.dataset.impactKey = "impact:responsibility";
+  const replacement = new FakeElement();
+  replacement.dataset = { ...oldControl.dataset };
+  const other = new FakeElement();
+  other.dataset.planToggle = "keep";
+  other.dataset.planOwnerId = "api";
+  other.dataset.impactKey = "impact:responsibility";
+  const redrawnWorld = {
+    querySelectorAll(selector) {
+      assert.equal(selector, "[data-plan-action], [data-plan-toggle]");
+      return [other, replacement];
+    },
+  };
+
+  const token = capturePlanFocus(oldControl);
+  assert.deepEqual(token, {
+    kind: "control",
+    ownerId: "api",
+    impactKey: "impact:responsibility",
+    control: "cut",
+  });
+  assert.equal(restorePlanFocus(redrawnWorld, token), true);
+  assert.equal(replacement.focusCount, 1);
+  assert.equal(other.focusCount, 0);
 });
 
 test("keep and cut decisions retain the same impact key across nested navigation", () => {
@@ -366,5 +527,135 @@ test("the actual resolve payload builder accepts impact keys but excludes tempor
       { id: "backend", name: "Backend", intent: "Runs the product." },
       { id: "api", name: "API", intent: "Serves requests." },
     ],
+  });
+});
+
+for (const key of ["Delete", "Backspace"]) {
+  test(key + " on a temporary action refuses a stale persisted selection without changing the document", () => {
+    const tempId = "plan:review-1:impact%3A1:card";
+    const document = {
+      nodes: [{ id: "api", name: "API" }],
+      edges: [],
+    };
+    const before = JSON.stringify(document);
+    const target = {
+      tagName: "BUTTON",
+      closest(selector) { return selector === "[data-plan-action]" ? this : null; },
+    };
+    const event = {
+      key,
+      target,
+      prevented: false,
+      preventDefault() { this.prevented = true; },
+    };
+    const result = handlePlanDeleteBoundary(event, {
+      document,
+      persistedSelection: { type: "node", id: "api" },
+      planSelectedId: tempId,
+      inspectorOpen: true,
+      hunkView: { path: "src/api.js" },
+    });
+
+    assert.equal(result.handled, true);
+    assert.equal(event.prevented, true);
+    assert.equal(result.state.persistedSelection, null);
+    assert.equal(result.state.inspectorOpen, false);
+    assert.equal(result.state.hunkView, null);
+    assert.equal(JSON.stringify(document), before);
+    assert.equal(document.nodes[0].id, "api");
+  });
+}
+
+test("text input deletion is never consumed by temporary plan selection", () => {
+  const event = {
+    key: "Backspace",
+    target: {
+      tagName: "INPUT",
+      closest() { return null; },
+    },
+    prevented: false,
+    preventDefault() { this.prevented = true; },
+  };
+  const state = {
+    persistedSelection: { type: "node", id: "api" },
+    planSelectedId: "plan:review-1:impact%3A1:card",
+    inspectorOpen: true,
+    hunkView: null,
+  };
+
+  assert.deepEqual(handlePlanDeleteBoundary(event, state), { handled: false, state });
+  assert.equal(event.prevented, false);
+});
+
+test("a focused temporary action alone consumes graph deletion when selection state has not caught up", () => {
+  const target = {
+    tagName: "BUTTON",
+    closest(selector) { return selector === "[data-plan-action]" ? this : null; },
+  };
+  const event = {
+    key: "Delete",
+    target,
+    prevented: false,
+    preventDefault() { this.prevented = true; },
+  };
+  const state = {
+    persistedSelection: { type: "node", id: "api" },
+    planSelectedId: null,
+    inspectorOpen: true,
+    hunkView: null,
+  };
+
+  const result = handlePlanDeleteBoundary(event, state);
+  assert.equal(result.handled, true);
+  assert.equal(event.prevented, true);
+  assert.equal(result.state.persistedSelection, null);
+});
+
+test("selecting a temporary representation clears persisted selection and inspector evidence", () => {
+  const next = selectTemporaryPlanState({
+    persistedSelection: { type: "node", id: "api" },
+    planSelectedId: null,
+    inspectorOpen: true,
+    hunkView: { path: "src/api.js" },
+  }, "plan:review-1:impact%3A1:card");
+
+  assert.deepEqual(next, {
+    persistedSelection: null,
+    planSelectedId: "plan:review-1:impact%3A1:card",
+    inspectorOpen: false,
+    hunkView: null,
+  });
+});
+
+test("native temporary activation clears a real stale persisted selection through the shared state boundary", () => {
+  const card = new FakeElement();
+  applyTemporaryNodeAccessibility(card, {
+    id: "plan:review-1:impact%3A1:card",
+    planType: "card",
+    name: "Change limiter",
+    impactKey: "impact:1",
+  }, { enterable: false, selected: false });
+  let state = {
+    persistedSelection: { type: "node", id: "api" },
+    planSelectedId: null,
+    inspectorOpen: true,
+    hunkView: { path: "src/api.js" },
+  };
+  let activationCount = 0;
+  const result = handleTemporaryActivation({ type: "click", detail: 0 }, card, {
+    now: 1000, lastClick: null,
+  }, {
+    focus: (_impactKey, id) => { state = selectTemporaryPlanState(state, id); },
+    enter() {},
+    select: () => activationCount++,
+  });
+
+  assert.equal(result.action, "select");
+  assert.equal(activationCount, 1);
+  assert.deepEqual(state, {
+    persistedSelection: null,
+    planSelectedId: card.dataset.planId,
+    inspectorOpen: false,
+    hunkView: null,
   });
 });

@@ -12,13 +12,16 @@ import {
   applyTemporaryNodeAccessibility,
   buildPersistedSavePayload,
   buildPlanResolvePayload,
+  capturePlanFocus,
+  handlePlanDeleteBoundary,
   handleTemporaryActivation,
   navigatePlanState,
   normalizePlanNavigation,
   persistentGraphActionAllowed,
   planEvidenceHtml,
   projectedEdgeEndpoints,
-  restoreTemporaryFocus,
+  restorePlanFocus,
+  selectTemporaryPlanState,
 } from "./plan-interaction.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
@@ -1836,8 +1839,10 @@ import { createRolledLoader } from "./rolled-loader.js";
           return '<span class="plan-annotation" data-impact-key="' + esc(item.impactKey) + '">' +
             '<span>' + esc(item.label) + '</span>' +
             '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(item.impactKey) +
+              '" data-plan-owner-id="' + esc(n.id) +
               '" aria-pressed="' + String(!cut) + '">Keep</button>' +
             '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(item.impactKey) +
+              '" data-plan-owner-id="' + esc(n.id) +
               '" aria-pressed="' + String(cut) + '">Cut</button></span>';
         }).join("");
       el.innerHTML =
@@ -1895,8 +1900,10 @@ import { createRolledLoader } from "./rolled-loader.js";
     const controls = n.impactKey
       ? '<span class="plan-card-controls" data-impact-key="' + esc(n.impactKey) + '">' +
           '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(n.impactKey) +
+            '" data-plan-owner-id="' + esc(n.id) +
             '" aria-pressed="' + String(!cut) + '">Keep</button>' +
           '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(n.impactKey) +
+            '" data-plan-owner-id="' + esc(n.id) +
             '" aria-pressed="' + String(cut) + '">Cut</button></span>'
       : "";
     el.innerHTML = count
@@ -2829,30 +2836,50 @@ import { createRolledLoader } from "./rolled-loader.js";
     grip.addEventListener("pointercancel", land);
   })();
 
-  function redrawPlanWithFocus(focusId) {
+  function redrawPlanWithFocus(focusToken) {
     renderPlan();
     drawPlan();
-    if (focusId) requestAnimationFrame(() => restoreTemporaryFocus(world, focusId));
+    if (focusToken) requestAnimationFrame(() => restorePlanFocus(world, focusToken));
   }
 
-  function planDecide(cutIt, impactKey, focusId) {
+  function planDecide(cutIt, impactKey, focusToken) {
     const list = planStepList();
     const s = list[planAt];
     impactKey = impactKey || (s && !s.summary ? s.key : "");
     if (!impactKey) return;
     const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
     if (index >= 0) planAt = index;
-    if (focusId) planSelectedId = focusId;
     planCut = setImpactDecision(planCut, impactKey, cutIt);
-    redrawPlanWithFocus(focusId);
+    redrawPlanWithFocus(focusToken);
+  }
+
+  function focusTemporaryPlanRepresentation(impactKey, representationId, renderPanel) {
+    const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
+    if (index >= 0) planAt = index;
+    const next = selectTemporaryPlanState({
+      persistedSelection: S.sel,
+      planSelectedId,
+      inspectorOpen,
+      hunkView,
+    }, representationId);
+    S.sel = next.persistedSelection;
+    planSelectedId = next.planSelectedId;
+    inspectorOpen = next.inspectorOpen;
+    hunkView = next.hunkView;
+    renderInspector();
+    if (renderPanel) renderPlan();
   }
 
   function selectPlanImpact(impactKey, representationId) {
     const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
     if (index < 0) return;
+    if (representationId) {
+      focusTemporaryPlanRepresentation(impactKey, representationId, false);
+      redrawPlanWithFocus({ kind: "action", id: representationId });
+      return;
+    }
     planAt = index;
-    planSelectedId = representationId || null;
-    redrawPlanWithFocus(representationId);
+    renderPlan();
   }
 
   function planGo(delta) {
@@ -3013,7 +3040,24 @@ import { createRolledLoader } from "./rolled-loader.js";
       ev.preventDefault(); ev.stopPropagation();
       const impactKey = planToggle.dataset.impactKey;
       const owner = planToggle.closest(".node");
-      planDecide(planToggle.dataset.planToggle === "cut", impactKey, owner && owner.dataset.id);
+      const focusToken = capturePlanFocus(planToggle);
+      if (owner && owner.dataset.planType) {
+        focusTemporaryPlanRepresentation(impactKey, owner.dataset.id, true);
+      }
+      planDecide(planToggle.dataset.planToggle === "cut", impactKey, focusToken);
+      return;
+    }
+    const planAction = ev.target.closest("[data-plan-action]");
+    if (planAction) {
+      ev.stopPropagation();
+      const activation = handleTemporaryActivation(ev, planAction, {
+        now: Date.now(), lastClick: lastNodeClick,
+      }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, true),
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+      });
+      lastNodeClick = activation.lastClick;
       return;
     }
     if (ev.target.closest("#name-btn")) { nameTheChanges(); return; }
@@ -4321,6 +4365,7 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function select(type, id, opts) {
     S.sel = { type: type, id: id };
+    planSelectedId = null;
     hunkView = null;
     if (!opts || opts.panel !== false) inspectorOpen = true;
     render();
@@ -4499,8 +4544,13 @@ import { createRolledLoader } from "./rolled-loader.js";
   const DBLCLICK_MS = 400;
 
   canvas.addEventListener("mousedown", (ev) => {
-    if (ev.target.closest("[data-plan-toggle]")) {
+    const pressedPlanToggle = ev.target.closest("[data-plan-toggle]");
+    if (pressedPlanToggle) {
       ev.stopPropagation();
+      const owner = pressedPlanToggle.closest(".node");
+      if (owner && owner.dataset.planType) {
+        focusTemporaryPlanRepresentation(pressedPlanToggle.dataset.impactKey, owner.dataset.id, false);
+      }
       return;
     }
     const annotationEl = ev.target.closest(".plan-annotation");
@@ -4568,6 +4618,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       const activation = handleTemporaryActivation(ev, planActionEl, {
         now: Date.now(), lastClick: lastNodeClick,
       }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, false),
         enter: (id) => enterNode(id),
         select: (impactKey, id) => selectPlanImpact(impactKey, id),
       });
@@ -4702,6 +4753,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       const activation = handleTemporaryActivation(ev, planAction, {
         lastClick: lastNodeClick,
       }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, true),
         enter: (id) => enterNode(id),
         select: (impactKey, id) => selectPlanImpact(impactKey, id),
       });
@@ -4733,7 +4785,21 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     if (ev.key !== "Backspace" && ev.key !== "Delete") return;
     const t = ev.target.tagName;
-    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || ev.target.isContentEditable) return;
+    const boundary = handlePlanDeleteBoundary(ev, {
+      persistedSelection: S.sel,
+      planSelectedId,
+      inspectorOpen,
+      hunkView,
+    });
+    if (boundary.handled) {
+      S.sel = boundary.state.persistedSelection;
+      planSelectedId = boundary.state.planSelectedId;
+      inspectorOpen = boundary.state.inspectorOpen;
+      hunkView = boundary.state.hunkView;
+      renderInspector();
+      return;
+    }
     if (!S.sel) return;
     if (S.sel.type === "node" && !persistentGraphActionAllowed({
       viewRoot, ids: [S.sel.id],

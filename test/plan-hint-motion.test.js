@@ -106,5 +106,10 @@ test("the browser wires behavioral plan helpers into every critical IIFE boundar
   assert.match(functionSource(APP, "connect"), /persistentGraphActionAllowed/);
   assert.match(APP, /buildPlanResolvePayload/);
   assert.match(APP, /handleTemporaryActivation/);
-  assert.match(APP, /restoreTemporaryFocus/);
+  assert.match(APP,
+    /canvas\.addEventListener\("click",[\s\S]*?const planAction = ev\.target\.closest\("\[data-plan-action\]"\)[\s\S]*?handleTemporaryActivation\(ev, planAction/);
+  assert.match(APP, /capturePlanFocus/);
+  assert.match(APP, /restorePlanFocus/);
+  assert.match(APP, /handlePlanDeleteBoundary/);
+  assert.match(APP, /selectTemporaryPlanState/);
 });
