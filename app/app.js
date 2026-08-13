@@ -26,9 +26,8 @@ import {
 import {
   createPlanPollScheduler,
   createPlanRetryController,
-  planControlState,
-  planProgressCopy,
-  planSummary,
+  planRenderState,
+  reconcilePlanCutKeys,
 } from "./plan-progress.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
@@ -665,6 +664,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   let movedGhosts = new Map();
 
   const canvas = document.getElementById("canvas");
+  const planStatusEl = document.getElementById("plan-status");
   const world = document.getElementById("world");
   const wires = document.getElementById("wires");
   const labelLayer = document.getElementById("wire-labels");
@@ -2564,8 +2564,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     return cap(s.why || "This changes the system structure.");
   }
 
-  function renderPlanControls(stage) {
-    const controls = planControlState(plan);
+  function renderPlanControls(stage, controls) {
     const keep = document.getElementById("plan-keep");
     const cut = document.getElementById("plan-cut");
     const approve = document.getElementById("plan-approve");
@@ -2596,6 +2595,8 @@ import { createRolledLoader } from "./rolled-loader.js";
     const loading = document.getElementById("plan-loading");
     const loadingBall = document.getElementById("plan-loading-ball");
     const progress = document.getElementById("plan-progress");
+    const renderState = planRenderState(plan, planProjection, S.nodes);
+    planStatusEl.textContent = renderState.announcement;
     /* The stepper's keys travel with the panel, and nothing else renders
        them — so a review that ends without passing through here left K and C
        floating over the sheet, offering shortcuts for a decision already
@@ -2614,13 +2615,13 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (working) {
       renderAsk();
       note.textContent = plan.note || "";
-      progress.textContent = planProgressCopy(plan);
+      progress.textContent = renderState.progress;
       loading.hidden = false;
       body.hidden = true;
       planLoader.start(loadingBall, 58);
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
-      renderPlanControls("working");
+      renderPlanControls("working", renderState.controls);
       applyPlanLit();
       renderHint();
       positionHint();
@@ -2638,12 +2639,12 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-nm").textContent = "Review paused";
       document.getElementById("plan-size").textContent = "";
       document.getElementById("plan-from").textContent = "";
-      document.getElementById("plan-why").textContent = planSummary(plan, planProjection, S.nodes);
+      document.getElementById("plan-why").textContent = renderState.summary;
       document.getElementById("plan-detail").textContent = "";
       document.getElementById("plan-evidence").innerHTML = "";
       document.getElementById("plan-reach").textContent = "";
       document.getElementById("plan-quote").innerHTML = "";
-      renderPlanControls("error");
+      renderPlanControls("error", renderState.controls);
       applyPlanLit();
       renderAsk();
       renderHint();
@@ -2681,12 +2682,12 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-nm").textContent = "That's everything";
       document.getElementById("plan-size").textContent = "";
       document.getElementById("plan-from").textContent = "";
-      document.getElementById("plan-why").textContent = planSummary(plan, planProjection, S.nodes);
+      document.getElementById("plan-why").textContent = renderState.summary;
       document.getElementById("plan-detail").textContent = kept + " kept, " + gone + " cut.";
       document.getElementById("plan-reach").textContent = "";
       evidence.innerHTML = "";
       document.getElementById("plan-quote").innerHTML = "";
-      renderPlanControls("summary");
+      renderPlanControls("summary", renderState.controls);
     } else {
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
       document.getElementById("plan-nm").textContent = s.name;
@@ -2705,7 +2706,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-quote").innerHTML = said
         ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
         : "";
-      renderPlanControls("step");
+      renderPlanControls("step", renderState.controls);
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
     }
@@ -3070,6 +3071,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     try {
       const { review } = await fetch("/api/plan").then((r) => r.json());
       const update = applyReviewRevision(planSeen, review, () => {
+        const previousPlan = plan;
         const wasWorking = !!plan && (plan.status === "working" || plan.status === "thinking");
         const newReview = !!review && (!plan || plan.id !== review.id);
         // Proposal ids can recur in a later review; carrying a coordinate across
@@ -3077,6 +3079,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         if (newReview) {
           movedGhosts.clear(); planCut = new Set(); planAt = 0; planSelectedId = null;
         }
+        planCut = reconcilePlanCutKeys(previousPlan, review, planCut);
         // A review that has been answered is over: it stays on the server so the
         // command waiting on it can read the brief, but there is nothing left to
         // show and reopening the panel over a decision already sent would be a
@@ -5123,7 +5126,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     splashEl.className = "splash";
     splashEl.innerHTML =
       '<canvas class="splash-ball" id="splash-ball" aria-hidden="true"></canvas>' +
-      '<p class="splash-say" id="splash-say" role="status" aria-live="polite"></p>' +
+      '<p class="splash-say" id="splash-say"></p>' +
       '<p class="splash-sub" id="splash-sub"></p>';
     canvas.appendChild(splashEl);
 
@@ -5331,7 +5334,9 @@ import { createRolledLoader } from "./rolled-loader.js";
     const skipped = !!(sent && sent.skipped);
     handoffEl = document.createElement("div");
     handoffEl.className = "handoff";
-    handoffEl.setAttribute("role", "status");
+    planStatusEl.textContent = skipped
+      ? "Review skipped. Claude Code continues with the plan as written."
+      : "Plan review sent. " + kept + " kept" + (cut ? ", " + cut + " cut." : ".");
     handoffEl.innerHTML =
       '<span class="handoff-say">Sent</span>' +
       '<span class="handoff-count">' + (skipped ? "Review skipped" : kept + " kept" +

@@ -10,10 +10,19 @@ const plural = (count, singular, many = singular + "s") =>
   count + " " + (count === 1 ? singular : many);
 
 const sentenceList = (values) => {
-  const unique = [...new Set(values.filter(Boolean))];
-  if (unique.length < 2) return unique[0] || "";
-  if (unique.length === 2) return unique.join(" and ");
-  return unique.slice(0, -1).join(", ") + ", and " + unique.at(-1);
+  const present = values.filter(Boolean);
+  if (present.length < 2) return present[0] || "";
+  if (present.length === 2) return present.join(" and ");
+  return present.slice(0, -1).join(", ") + ", and " + present.at(-1);
+};
+
+const operationNames = (values, noun) => {
+  const names = values.filter(Boolean);
+  const counts = new Map();
+  names.forEach((name) => counts.set(name, (counts.get(name) || 0) + 1));
+  if ([...counts.values()].every((count) => count === 1)) return sentenceList(names);
+  const labeled = [...counts].map(([name, count]) => name + (count > 1 ? " ×" + count : ""));
+  return plural(names.length, noun) + " (" + sentenceList(labeled) + ")";
 };
 
 const cleanNote = (value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, 500);
@@ -47,7 +56,10 @@ export function planSummary(review, projection, nodes) {
     const note = cleanNote(review.note)
       .replace(/^This plan is longer than plangolin reads — only the first \d+ steps were reviewed\.\s*/i, "") ||
       "Plangolin couldn't complete the impact review. Retry or skip this review.";
-    return "Review stopped safely. " + note;
+    const summary = "Review stopped safely. " + note;
+    return /retry/i.test(summary) && /skip/i.test(summary)
+      ? summary
+      : summary + " Retry or skip this review.";
   }
 
   const impacts = list(review && review.impacts);
@@ -76,11 +88,14 @@ export function planSummary(review, projection, nodes) {
   const responsibilities = list(projection && projection.annotations && projection.annotations.responsibilities)
     .map((operation) => nameOf(operation.targetId));
   const structural = [
-    additions.length ? "Adds " + sentenceList(additions) + "." : "",
-    removals.length ? "Removes " + sentenceList(removals) + "." : "",
-    connections.length ? "Connects " + sentenceList(connections) + "." : "",
-    disconnections.length ? "Disconnects " + sentenceList(disconnections) + "." : "",
-    responsibilities.length ? "Updates responsibilities for " + sentenceList(responsibilities) + "." : "",
+    additions.length ? "Adds " + operationNames(additions, "component") + "." : "",
+    removals.length ? "Removes " + operationNames(removals, "component") + "." : "",
+    connections.length ? (connections.length === 1 ? "Connects " : "Adds ") +
+      operationNames(connections, "connection") + "." : "",
+    disconnections.length ? (disconnections.length === 1 ? "Disconnects " : "Removes ") +
+      operationNames(disconnections, "connection") + "." : "",
+    responsibilities.length ? "Updates responsibilities for " +
+      operationNames(responsibilities, "component") + "." : "",
   ].filter(Boolean);
 
   const affected = impacts
@@ -126,6 +141,28 @@ export function planControlState(review) {
       ? "Needs Review — check unresolved plan steps before approving."
       : "",
   };
+}
+
+export function planRenderState(review, projection, nodes) {
+  const controls = planControlState(review);
+  if (!review) return { progress: "", summary: "", announcement: "", controls };
+  if (review.status === "working" || review.status === "thinking") {
+    const progress = planProgressCopy(review);
+    return { progress, summary: "", announcement: progress, controls };
+  }
+  const summary = planSummary(review, projection, nodes);
+  const actionable = review.status === "error" && !(/retry/i.test(summary) && /skip/i.test(summary))
+    ? summary + " Retry or skip this review."
+    : summary;
+  return { progress: "", summary, announcement: actionable, controls };
+}
+
+export function reconcilePlanCutKeys(previousReview, nextReview, cutKeys) {
+  if (!previousReview || !nextReview || previousReview.id !== nextReview.id) return new Set();
+  const current = new Set(cutKeys instanceof Set ? cutKeys : []);
+  if (nextReview.status !== "ready" && nextReview.status !== "partial") return current;
+  const currentKeys = new Set(list(nextReview.impacts).map((impact) => impact.key).filter(Boolean));
+  return new Set([...current].filter((key) => currentKeys.has(key)));
 }
 
 export function createPlanPollScheduler(options) {

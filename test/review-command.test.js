@@ -74,7 +74,9 @@ test("the browser exposes live progress while the command names the system map",
     const html = await fetch(`http://127.0.0.1:${browser.address().port}/`).then((r) => r.text());
     const loading = html.match(/<div class="plan-loading" id="plan-loading" hidden>([\s\S]*?)<\/div>/);
     assert.ok(loading, "served app includes its plan-loading element");
-    assert.match(loading[1], /id="plan-progress" role="status" aria-live="polite" aria-atomic="true"/);
+    assert.match(html, /id="plan-status" role="status" aria-live="polite" aria-atomic="true"/);
+    assert.match(loading[1], /id="plan-progress"/);
+    assert.doesNotMatch(loading[1], /role="status"|aria-live/);
     assert.doesNotMatch(loading[1], /Preparing the plan against your system map/);
     assert.doesNotMatch(loading[1], /sheet/i);
 

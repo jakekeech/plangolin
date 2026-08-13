@@ -7,8 +7,11 @@ import {
   planControlState,
   planPollDelay,
   planProgressCopy,
+  planRenderState,
   planSummary,
+  reconcilePlanCutKeys,
 } from "../app/plan-progress.js";
+import { buildPlanResolvePayload } from "../app/plan-interaction.js";
 
 const APP = readFileSync(new URL("../app/app.js", import.meta.url), "utf8");
 const HTML = readFileSync(new URL("../app/index.html", import.meta.url), "utf8");
@@ -134,6 +137,50 @@ test("a structural summary leads with additions, removals, and connections", () 
   assert.doesNotMatch(result, /system shape stays the same/i);
 });
 
+test("structural summaries count distinct operations that share display names", () => {
+  const duplicateNodes = [
+    ...NODES,
+    { id: "cache-copy", name: "Legacy Cache" },
+  ];
+  const structural = review({
+    impacts: [impact({
+      key: "impact:structure",
+      level: "system",
+      targetId: "",
+      additions: [
+        { id: "worker-a", name: "Worker" },
+        { id: "worker-b", name: "Worker" },
+      ],
+      removals: [{ id: "cache" }, { id: "cache-copy" }],
+      connections: [
+        { from: "api", to: "worker-a", label: "dispatches" },
+        { from: "api", to: "worker-b", label: "dispatches" },
+      ],
+    })],
+  });
+  const projection = {
+    nodes: [
+      { id: "plan:worker-a", sourceId: "worker-a", name: "Worker", planType: "addition" },
+      { id: "plan:worker-b", sourceId: "worker-b", name: "Worker", planType: "addition" },
+    ],
+    edges: [
+      { from: "api", to: "plan:worker-a", planType: "connection" },
+      { from: "api", to: "plan:worker-b", planType: "connection" },
+    ],
+    annotations: {
+      removals: [{ targetId: "cache" }, { targetId: "cache-copy" }],
+      responsibilities: [], disconnections: [],
+    },
+  };
+
+  const result = planSummary(structural, projection, duplicateNodes);
+
+  assert.match(result, /^Adds 2 components \(Worker ×2\)\./);
+  assert.match(result, /Removes 2 components \(Legacy Cache ×2\)\./);
+  assert.match(result, /Adds 2 connections \(API Server to Worker ×2\)\./);
+  assert.equal((result.match(/×2/g) || []).length, 3, result);
+});
+
 test("a partial summary identifies Needs Review without claiming a settled shape", () => {
   const partial = review({
     status: "partial",
@@ -177,7 +224,8 @@ test("a truncated error removes the server's stale reviewed-step coverage claim"
     impacts: [],
   }), { nodes: [], edges: [], annotations: {} }, NODES);
 
-  assert.equal(result, "Review stopped safely. Couldn't read this plan — review it by hand.");
+  assert.equal(result, "Review stopped safely. Couldn't read this plan — review it by hand. " +
+    "Retry or skip this review.");
   assert.doesNotMatch(result, /60|steps? reviewed/i);
 });
 
@@ -283,6 +331,59 @@ test("control state exposes only safe actions for error, partial, and working re
   });
 });
 
+test("one render model announces every working, error, partial, and ready transition", () => {
+  const projection = {
+    nodes: [
+      { planType: "card", impactKey: "impact:api", parent: "api" },
+      { planType: "card", impactKey: "impact:tests", parent: "tests" },
+    ],
+    edges: [],
+    annotations: { removals: [], responsibilities: [], disconnections: [] },
+  };
+  const states = [
+    review({ status: "working", phase: "mapping_project", counts: { files: 84 } }),
+    review({ status: "error", note: "Provider unavailable.", impacts: [] }),
+    review({
+      status: "partial",
+      impacts: [impact(), impact({
+        key: "impact:unknown", level: "unresolved", targetId: "", steps: [4],
+      })],
+    }),
+    review(),
+  ].map((current) => planRenderState(current, projection, NODES));
+  const announcer = { textContent: "" };
+  const announcements = states.map((state) => {
+    announcer.textContent = state.announcement;
+    return announcer.textContent;
+  });
+
+  assert.deepEqual(announcements, [
+    "Mapping your project — 84 files found",
+    "Review stopped safely. Provider unavailable. Retry or skip this review.",
+    "7 plan steps reviewed. Work affects API Server. " +
+      "Needs Review: 1 plan step still needs a component.",
+    "7 plan steps reviewed. Work affects API Server and Test Suite. " +
+      "The system shape stays the same.",
+  ]);
+  assert.equal(new Set(announcements).size, 4);
+  assert.deepEqual(states.map(({ controls }) => ({
+    keep: controls.keep,
+    cut: controls.cut,
+    approve: controls.approve,
+    retry: controls.retry,
+    skip: controls.skip,
+    warning: controls.warning,
+  })), [
+    { keep: false, cut: false, approve: false, retry: false, skip: false, warning: "" },
+    { keep: false, cut: false, approve: false, retry: true, skip: true, warning: "" },
+    {
+      keep: true, cut: true, approve: true, retry: false, skip: false,
+      warning: "Needs Review — check unresolved plan steps before approving.",
+    },
+    { keep: true, cut: true, approve: true, retry: false, skip: false, warning: "" },
+  ]);
+});
+
 test("retry posts once, immediately publishes working state, and preserves the failed plan", async () => {
   let current = review({
     status: "error",
@@ -344,15 +445,66 @@ test("a failed retry restores the actionable error only if polling has not advan
   assert.equal(published.length, 2);
 });
 
+for (const advancedStatus of ["working", "ready"]) {
+  test(`a late retry failure cannot replace polling's newer ${advancedStatus} review`, async () => {
+    let current = review({ status: "error", note: "Provider unavailable." });
+    const published = [];
+    let rejectRequest;
+    const retry = createPlanRetryController({
+      review: () => current,
+      publish(next) { current = next; published.push(next); },
+      fetch() {
+        return new Promise((_resolve, reject) => { rejectRequest = reject; });
+      },
+    });
+
+    const request = retry();
+    const advanced = review({ status: advancedStatus, revision: 7 });
+    current = advanced;
+    rejectRequest(new Error("late network failure"));
+
+    assert.equal(await request, false);
+    assert.equal(current, advanced);
+    assert.deepEqual(published.map(({ status }) => status), ["working"]);
+  });
+}
+
+test("same-review revisions preserve surviving cuts and accept only new current impacts", () => {
+  const first = review({
+    revision: 4,
+    impacts: [impact({ key: "impact:old" }), impact({ key: "impact:cut" })],
+  });
+  const working = review({ status: "working", revision: 5, impacts: [] });
+  const revised = review({
+    revision: 6,
+    impacts: [impact({ key: "impact:cut" }), impact({ key: "impact:new" })],
+  });
+  let cutKeys = new Set(["impact:cut"]);
+
+  cutKeys = reconcilePlanCutKeys(first, working, cutKeys);
+  assert.deepEqual([...cutKeys], ["impact:cut"], "working does not erase decisions");
+  cutKeys = reconcilePlanCutKeys(working, revised, cutKeys);
+  assert.deepEqual([...cutKeys], ["impact:cut"], "a surviving cut remains cut");
+
+  const payload = buildPlanResolvePayload(revised, cutKeys, NODES, {
+    nodes: [], edges: [], annotations: {},
+  });
+  assert.deepEqual(payload.accepted, ["impact:new"]);
+  assert.equal(payload.accepted.includes("impact:old"), false, "removed keys are never posted");
+});
+
 test("the browser consumes the tested progress, control, retry, and polling behavior", () => {
   assert.match(APP, /from "\.\/plan-progress\.js"/);
   for (const helper of [
-    "planProgressCopy", "planSummary", "planControlState",
+    "planRenderState", "reconcilePlanCutKeys",
     "createPlanRetryController", "createPlanPollScheduler",
   ]) assert.match(APP, new RegExp("\\b" + helper + "\\b"), helper);
   assert.doesNotMatch(APP, /setInterval\(pollPlan/);
   assert.match(APP, /addEventListener\("pagehide"/);
-  assert.match(HTML, /id="plan-progress"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(HTML, /id="plan-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
+  assert.equal((HTML.match(/role="status"/g) || []).length, 1);
+  assert.doesNotMatch(HTML, /id="plan-progress"[^>]*(role="status"|aria-live)/);
+  assert.doesNotMatch(HTML, /id="plan-warning"[^>]*(role="status"|aria-live)/);
   assert.match(HTML, /id="plan-retry"/);
   assert.match(HTML, /id="plan-skip"/);
   assert.doesNotMatch(HTML, /Preparing the plan against your system map/);
