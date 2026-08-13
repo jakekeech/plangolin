@@ -35,3 +35,6 @@ DOCS.md
 
 # isolated implementation workspaces
 .worktrees/
+
+# local developer reference — implementation notes, not product documentation
+/LAYOUT-ALGORITHMS.local.md

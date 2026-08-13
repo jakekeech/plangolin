@@ -1,4 +1,4 @@
-import { generatedPositions, layeredPositions } from "./graph-layout.js";
+import { generatedPositions, layeredPositions, proposalPositions } from "./graph-layout.js";
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
@@ -1823,28 +1823,6 @@ import { createRolledLoader } from "./rolled-loader.js";
     applyPlanLit();
   }
 
-  /* Where a proposed block sits. Beside the block it connects to, because a
-     proposal's whole meaning is its relationship to what already exists — and
-     below the sheet when it connects to nothing, which is itself worth seeing.
-     Deterministic so a ghost does not jump every two-second poll.
-     Never written anywhere: a position for something that does not exist is
-     not part of the document, so placeUnpositioned() never sees one. */
-  const GHOST_DX = 260, GHOST_DY = 150;
-
-  const boxesOverlap = (a, b) =>
-    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-
-  /* Nudges a candidate box clear of everything already claimed — real blocks
-     and any ghost this same pass has already placed. Straight down a row at a
-     time, same as the beside-the-hub rule already steps in GHOST_DY units, so
-     a run of clashes reads as a column rather than a scatter. Six rows is the
-     same "that's a lot on one sheet" threshold the crowded check uses — past
-     it, stacking any further stops looking like a deliberate layout, so the
-     sweep starts a new column instead. Both loops are bounded by `taken`,
-     which is finite, so this always halts: far enough right, nothing left to
-     clash with. */
-  const GHOST_MAX_ROWS = 6;
-
   /* A ghost is laid out at a fixed height rather than a measured one. Real
      blocks are measured on the first render and never change, so `heights` is
      already settled for them by the time a review opens; a ghost is measured
@@ -1858,40 +1836,29 @@ import { createRolledLoader } from "./rolled-loader.js";
      under a short ghost. Undershooting costs the overlap this exists to
      prevent, so the margin is on this side. */
   const GHOST_H = 220;
-  function settle(x0, y0, w, h, taken) {
-    for (let col = 0; ; col++) {
-      const x = x0 + col * GHOST_DX;
-      for (let row = 0; row <= GHOST_MAX_ROWS; row++) {
-        const box = { x: x, y: y0 + row * GHOST_DY, w: w, h: h };
-        if (!taken.some((t) => boxesOverlap(box, t))) return box;
-      }
-    }
-  }
 
   function ghostPositions(additions) {
-    const at = new Map();
     const real = currentLevelNodes();
-    const below = real.length ? Math.max(...real.map((n) => n.y || 0)) + GHOST_DY : 120;
-    // What a ghost must clear. Real blocks first, in sheet order — additions
-    // never move those — then each ghost placed earlier in this same call, so
-    // two proposals never land on each other either.
-    const taken = real.map((n) => ({ x: n.x || 0, y: n.y || 0, w: NODE_W, h: heights[n.id] || 80 }));
-    additions.forEach((a, i) => {
-      const moved = movedGhosts.get(a.id);
-      if (moved) {
-        at.set(a.id, { x: moved.x, y: moved.y });
-        taken.push({ x: moved.x, y: moved.y, w: NODE_W, h: GHOST_H });
-        return;
-      }
-      const link = (plan.delta.connections || []).find((c) => c.to === a.id || c.from === a.id);
-      const other = link && real.find((n) => n.id === (link.to === a.id ? link.from : link.to));
-      const x0 = other ? (other.x || 0) + GHOST_DX : 120 + i * GHOST_DX;
-      const y0 = other ? (other.y || 0) + GHOST_DY : below;
-      const box = settle(x0, y0, NODE_W, GHOST_H, taken);
-      at.set(a.id, { x: box.x, y: box.y });
-      taken.push(box);
+    const proposed = new Set(additions.map((addition) => addition.id));
+    const visible = (id) => proposed.has(id) ? id : levelAncestor(id);
+    const pairs = new Set();
+    const edges = [...S.edges, ...(plan.delta.connections || [])].flatMap((edge) => {
+      const from = visible(edge.from), to = visible(edge.to);
+      const key = from + ">" + to;
+      if (!from || !to || from === to || pairs.has(key)) return [];
+      pairs.add(key);
+      return [{ from: from, to: to }];
     });
-    return at;
+    return proposalPositions({
+      realNodes: real.map((node) => ({
+        id: node.id, x: node.x || 0, y: node.y || 0,
+        width: NODE_W, height: heights[node.id] || 80,
+      })),
+      additions: additions,
+      edges: edges,
+      moved: movedGhosts,
+      options: { col: 260, row: GHOST_H + 30, nodeWidth: NODE_W, nodeHeight: GHOST_H },
+    });
   }
 
   function measure() {
