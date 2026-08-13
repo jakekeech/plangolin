@@ -325,33 +325,6 @@ test("a Space-synthesized click activates a temporary card exactly once", () => 
   assert.equal(activationCount, 1);
 });
 
-test("a Space-synthesized click selects an enterable temporary node without opening it", () => {
-  const addition = new FakeElement();
-  applyTemporaryNodeAccessibility(addition, {
-    id: "plan:review-1:impact%3A1:addition:limiter",
-    planType: "addition",
-    name: "Limiter",
-    impactKey: "impact:1",
-  }, { enterable: true, selected: false });
-  let enterCount = 0;
-  let selectCount = 0;
-  const callbacks = {
-    focus() {},
-    enter: () => enterCount++,
-    select: () => selectCount++,
-  };
-
-  const keyResult = handleTemporaryActivation({ type: "keydown", key: " " }, addition, {}, callbacks);
-  const clickResult = handleTemporaryActivation({ type: "click", detail: 0 }, addition, {
-    now: 1000, lastClick: keyResult.lastClick,
-  }, callbacks);
-
-  assert.equal(keyResult.handled, false);
-  assert.equal(clickResult.action, "select");
-  assert.equal(enterCount, 0);
-  assert.equal(selectCount, 1);
-});
-
 test("a single pointer click selects a temporary root group without entering it", () => {
   const group = new FakeElement();
   applyTemporaryNodeAccessibility(group, {
@@ -471,6 +444,133 @@ test("a manual double click navigates an enterable proposed node exactly once", 
   assert.equal(secondEvent.prevented, true);
   assert.equal(second.lastClick, null);
 });
+
+const activationKinds = [
+  {
+    label: "proposed addition",
+    node: {
+      id: "plan:review-1:impact%3A1:addition:limiter",
+      planType: "addition",
+      name: "Limiter",
+      impactKey: "impact:1",
+    },
+    enterable: true,
+  },
+  {
+    label: "temporary root group",
+    node: {
+      id: "plan:review-1:group:project-support",
+      planType: "group",
+      name: "Project Support",
+    },
+    enterable: true,
+  },
+  {
+    label: "temporary card",
+    node: {
+      id: "plan:review-1:impact%3A2:card",
+      planType: "card",
+      name: "Change limiter",
+      impactKey: "impact:2",
+    },
+    enterable: false,
+  },
+];
+
+const activationOrigins = [
+  {
+    label: "pointer single click",
+    run(element, callbacks) {
+      const pressed = handleTemporaryActivation({ type: "mousedown" }, element, {
+        now: 1000, lastClick: null,
+      }, callbacks);
+      return handleTemporaryActivation({ type: "click", detail: 1 }, element, {
+        now: 1000, lastClick: pressed.lastClick,
+      }, callbacks);
+    },
+    expected: {
+      "proposed addition": { action: "select", entered: 0, selected: 1 },
+      "temporary root group": { action: "select", entered: 0, selected: 1 },
+      "temporary card": { action: "select", entered: 0, selected: 1 },
+    },
+  },
+  {
+    label: "pointer double click",
+    run(element, callbacks) {
+      const firstPress = handleTemporaryActivation({ type: "mousedown" }, element, {
+        now: 1000, lastClick: null,
+      }, callbacks);
+      const firstClick = handleTemporaryActivation({ type: "click", detail: 1 }, element, {
+        now: 1000, lastClick: firstPress.lastClick,
+      }, callbacks);
+      const secondPress = handleTemporaryActivation({ type: "mousedown" }, element, {
+        now: 1200, lastClick: firstClick.lastClick,
+      }, callbacks);
+      return handleTemporaryActivation({
+        type: "click", detail: 2, preventDefault() {},
+      }, element, {
+        now: 1200, lastClick: secondPress.lastClick,
+      }, callbacks);
+    },
+    expected: {
+      "proposed addition": { action: "enter", entered: 1, selected: 1 },
+      "temporary root group": { action: "enter", entered: 1, selected: 1 },
+      "temporary card": { action: "select", entered: 0, selected: 2 },
+    },
+  },
+  {
+    label: "keyboard Enter",
+    run(element, callbacks) {
+      return handleTemporaryActivation({
+        type: "keydown", key: "Enter", preventDefault() {},
+      }, element, {}, callbacks);
+    },
+    expected: {
+      "proposed addition": { action: "enter", entered: 1, selected: 0 },
+      "temporary root group": { action: "enter", entered: 1, selected: 0 },
+      "temporary card": { action: "select", entered: 0, selected: 1 },
+    },
+  },
+  {
+    label: "Space-synthesized native click",
+    run(element, callbacks) {
+      const keydown = handleTemporaryActivation({ type: "keydown", key: " " }, element, {
+        lastClick: null,
+      }, callbacks);
+      assert.equal(keydown.handled, false);
+      return handleTemporaryActivation({ type: "click", detail: 0 }, element, {
+        now: 1000, lastClick: keydown.lastClick,
+      }, callbacks);
+    },
+    expected: {
+      "proposed addition": { action: "enter", entered: 1, selected: 0 },
+      "temporary root group": { action: "enter", entered: 1, selected: 0 },
+      "temporary card": { action: "select", entered: 0, selected: 1 },
+    },
+  },
+];
+
+for (const origin of activationOrigins) {
+  for (const kind of activationKinds) {
+    test("activation table: " + origin.label + " on " + kind.label, () => {
+      const element = new FakeElement();
+      applyTemporaryNodeAccessibility(element, kind.node, {
+        enterable: kind.enterable,
+        selected: false,
+      });
+      let entered = 0;
+      let selected = 0;
+      const result = origin.run(element, {
+        focus() {},
+        enter() { entered++; },
+        select() { selected++; },
+        selectRepresentation() { selected++; },
+      });
+
+      assert.deepEqual({ action: result.action, entered, selected }, origin.expected[kind.label]);
+    });
+  }
+}
 
 test("focus restoration targets a replacement temporary action after synchronous redraw", () => {
   const oldAction = new FakeElement();

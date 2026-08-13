@@ -162,9 +162,14 @@ export function handleTemporaryActivation(event, element, state, callbacks) {
   if (event && event.type === "click") {
     const now = Number.isFinite(state && state.now) ? state.now : Date.now();
     const pointerClick = Number(event.detail) > 0;
-    if (!event.detail) {
+    const nativeActivation = Number(event.detail) === 0;
+    if (nativeActivation) {
       element?.focus?.({ preventScroll: true });
       callbacks.focus?.(impactKey, id);
+      if (enterable) {
+        callbacks.enter(id);
+        return { handled: true, action: "enter", lastClick: null };
+      }
     }
     if (pointerClick && enterable && lastClick &&
         lastClick.id === id && now - lastClick.time < 400) {
