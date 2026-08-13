@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { preparationPaths } from "../src/preparation.js";
 import {
+  LAUNCHER_RESERVATION_MS,
   PREPARE_START_POLL_MS,
   PREPARE_START_TIMEOUT_MS,
   runPrepareCommand,
@@ -40,17 +41,24 @@ async function writeStartup(root, cacheRoot, {
   revision = 1,
 } = {}) {
   const paths = preparationPaths(root, { cacheRoot });
+  const generation = 1;
+  const owner = "11111111-1111-4111-8111-111111111111";
+  const g = String(generation).padStart(12, "0");
   await fs.mkdir(paths.dir, { recursive: true });
-  await fs.writeFile(paths.lock, JSON.stringify({
+  await fs.writeFile(path.join(paths.dir, `lease-${g}.json`), JSON.stringify({
     version: 1,
     rootHash: paths.rootHash,
-    token: "worker-token",
+    generation,
+    owner,
     pid,
     startedAt,
-    fingerprint: null,
   }));
-  await fs.writeFile(paths.progress, JSON.stringify({
-    phase: "starting", revision, elapsed: 0, counts: {},
+  await fs.writeFile(path.join(paths.dir, `heartbeat-${g}-${owner}.json`), JSON.stringify({
+    version: 1, generation, owner, renewedAt: startedAt,
+  }));
+  await fs.writeFile(path.join(paths.dir, `progress-${g}-${owner}.json`), JSON.stringify({
+    owner, generation, phase: "starting", revision, elapsed: 0,
+    updatedAt: startedAt, counts: {},
   }));
 }
 
@@ -95,6 +103,59 @@ test("an existing live worker returns success without spawning a duplicate", asy
 
   assert.deepEqual(result, { code: 0, started: false });
   assert.equal(spawns, 0);
+});
+
+test("concurrent public commands share one atomic launcher reservation and spawn once", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const children = [];
+  const paths = preparationPaths(root, { cacheRoot });
+  let startup;
+  const spawn = () => {
+    const child = childProcessDouble();
+    children.push(child);
+    startup = writeStartup(root, cacheRoot, { startedAt: 1_000 });
+    return child;
+  };
+  let tick = 1_000;
+  let initialReads = 0;
+  let releaseInitialReads;
+  const bothInitialReads = new Promise((resolve) => { releaseInitialReads = resolve; });
+  const io = {
+    ...fs,
+    async readdir(dir, ...args) {
+      if (dir === paths.dir && initialReads < 2) {
+        initialReads += 1;
+        if (initialReads === 2) releaseInitialReads();
+        await bothInitialReads;
+      }
+      return fs.readdir(dir, ...args);
+    },
+  };
+  const options = {
+    cacheRoot,
+    fs: io,
+    cliPath: CLI_PATH,
+    spawn,
+    now: () => tick,
+    processAlive: () => true,
+    sleep: async (milliseconds) => {
+      tick += milliseconds;
+      if (startup) await startup;
+      await Promise.resolve();
+    },
+    timeoutMs: 100,
+  };
+
+  const [first, second] = await Promise.all([
+    runPrepareCommand(root, options),
+    runPrepareCommand(root, options),
+  ]);
+
+  assert.equal(LAUNCHER_RESERVATION_MS, PREPARE_START_TIMEOUT_MS);
+  assert.equal(initialReads, 2, "both commands observed no worker before launcher election");
+  assert.equal(children.length, 1);
+  assert.equal(first.code, 0);
+  assert.equal(second.code, 0);
 });
 
 test("a detached spawn error is a startup failure, not a success message", async (t) => {
@@ -186,7 +247,13 @@ test("the real prepare CLI returns after startup while its hidden worker complet
   const paths = preparationPaths(await fs.realpath(root), { cacheRoot });
   let result;
   for (let i = 0; i < 200; i++) {
-    result = await fs.readFile(paths.result, "utf8").then(JSON.parse, () => null);
+    const resultName = await fs.readdir(paths.dir).then(
+      (names) => names.find((name) => name.startsWith("result-")),
+      () => null,
+    );
+    result = resultName
+      ? await fs.readFile(path.join(paths.dir, resultName), "utf8").then(JSON.parse, () => null)
+      : null;
     if (result) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
