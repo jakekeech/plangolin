@@ -506,6 +506,24 @@ export function buildImpactPrompt({ nodes = [], edges = [], groups = [] }, steps
   ].join("\n");
 }
 
+export function buildPlacementRetryPrompt(context, rejectedSteps, diagnostics) {
+  const choices = list(context?.nodes)
+    .map((node) => `${node.id} — ${node.name}${node.parent ? ` (inside ${node.parent})` : ""}`)
+    .join("\n");
+  const reasons = [...new Set(list(diagnostics?.issues)
+    .map((issue) => issue?.code)
+    .filter((code) => typeof code === "string" && /^[a-z][a-z0-9_]*$/.test(code)))]
+    .join(", ");
+  return [
+    buildImpactPrompt(context, rejectedSteps),
+    "",
+    `The previous placement was rejected: ${reasons || "incomplete coverage"}.`,
+    "Valid target choices:",
+    choices || "(none — declare a justified system addition)",
+    "Return every listed step as one system or component decision. Do not return support or unresolved.",
+  ].join("\n");
+}
+
 export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
   const rawImpacts = isObject(raw) && Array.isArray(raw.impacts) ? raw.impacts : [];
   const diagnostics = {
@@ -562,22 +580,64 @@ export function remapImpactTargets(raw, idFor) {
   };
 }
 
-export async function planImpact(context, steps, { call = callTask, deferValidation = false } = {}) {
-  const prompt = buildImpactPrompt(context, steps);
-  const response = await call({ task: "impact", prompt });
-  if (!isObject(response) || !isObject(response.parsed) || !Array.isArray(response.parsed.impacts)) {
-    const error = new Error("plangolin's impact service returned a malformed response.");
-    error.validation = true;
-    throw error;
-  }
-  if (deferValidation) {
-    return { raw: response.parsed, provider: response.provider, model: response.model };
-  }
-  const validated = validateImpacts(response.parsed, { ...context, steps });
+function malformedResponseError() {
+  const error = new Error("plangolin's impact service returned a malformed response.");
+  error.validation = true;
+  return error;
+}
+
+function placementError() {
+  const error = new Error("Could not place every change in this plan. Review it by hand.");
+  error.userFacing = true;
+  error.validation = true;
+  return error;
+}
+
+function parsedImpacts(response) {
+  return isObject(response) && isObject(response.parsed) && Array.isArray(response.parsed.impacts)
+    ? response.parsed
+    : null;
+}
+
+async function retryPlacement(context, steps, initialValidation, call) {
+  const rejectedNumbers = new Set(list(initialValidation?.rejectedSteps));
+  const rejectedSteps = steps.filter((step) => rejectedNumbers.has(step.n));
+  const response = await call({
+    task: "impact",
+    prompt: buildPlacementRetryPrompt(context, rejectedSteps, initialValidation?.diagnostics),
+  });
+  const repaired = parsedImpacts(response);
+  if (!repaired) throw placementError();
+
+  const retained = list(initialValidation?.impacts).map(({ key: _key, ...impact }) => impact);
+  const validated = validateImpacts({ impacts: [...retained, ...repaired.impacts] }, {
+    ...context,
+    steps,
+  });
+  if (!validated.coverage.complete) throw placementError();
   return {
     ...validated,
     provider: response.provider,
     model: response.model,
-    outcome: validated.coverage.complete ? "ready" : "partial",
+    outcome: "ready",
   };
+}
+
+export async function planImpact(context, steps, {
+  call = callTask,
+  deferValidation = false,
+  initialValidation = null,
+} = {}) {
+  if (initialValidation) return retryPlacement(context, steps, initialValidation, call);
+
+  const prompt = buildImpactPrompt(context, steps);
+  const response = await call({ task: "impact", prompt });
+  const parsed = parsedImpacts(response);
+  if (!parsed) throw malformedResponseError();
+  if (deferValidation) {
+    return { raw: parsed, provider: response.provider, model: response.model };
+  }
+  const validated = validateImpacts(parsed, { ...context, steps });
+  if (!validated.coverage.complete) return retryPlacement(context, steps, validated, call);
+  return { ...validated, provider: response.provider, model: response.model, outcome: "ready" };
 }

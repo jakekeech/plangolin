@@ -9,6 +9,7 @@ import {
   MAX_BROWSER_NOTE_LENGTH,
   createPlanStore,
 } from "../src/plan-store.js";
+import { planImpact } from "../src/plan-impact.js";
 import { emptyDoc, load as loadDoc, save as saveDoc } from "../src/schema.js";
 import {
   followPreparation as followPreparedLease,
@@ -54,7 +55,7 @@ function impact(overrides = {}) {
 const readyResult = (overrides = {}) => ({
   impacts: [impact()],
   diagnostics: { invalidOperations: 0, issues: [] },
-  coverage: { claimed: 2, total: 2 },
+  coverage: { claimed: 2, total: 2, complete: true },
   provider: "test-provider",
   model: "test-model",
   outcome: "ready",
@@ -201,31 +202,26 @@ test("unprepared serial review reports every honest phase", async () => {
   assert.equal(store.forBrowser().phase, "");
 });
 
-test("validated complete and invalidated results become truthful outcomes", async () => {
+test("store publishes only complete ready placement results", async () => {
   const readyStore = createPlanStore({ impact: async () => readyResult() });
   readyStore.open({ plan: PLAN });
   await readyStore.fill(memWs(SYSTEM));
   assert.equal(readyStore.current().status, "ready");
 
-  const unresolved = impact({
-    level: "unresolved", targetId: "", title: "Needs review", why: "Placement is unclear.", size: "",
-  });
-  const partialStore = createPlanStore({
-    impact: async () => readyResult({ impacts: [unresolved], outcome: "partial" }),
-  });
-  partialStore.open({ plan: PLAN });
-  await partialStore.fill(memWs(SYSTEM));
-  assert.equal(partialStore.current().status, "partial");
-
-  const invalidatedStore = createPlanStore({
-    impact: async () => readyResult({
-      diagnostics: { invalidOperations: 1, issues: [{ code: "invalid_connection" }] },
-      outcome: "ready",
-    }),
-  });
-  invalidatedStore.open({ plan: PLAN });
-  await invalidatedStore.fill(memWs(SYSTEM));
-  assert.equal(invalidatedStore.current().status, "partial");
+  const incompleteResults = [
+    readyResult({ outcome: "partial" }),
+    readyResult({ coverage: { claimed: 1, total: 2, complete: false } }),
+    readyResult({ impacts: [] }),
+    readyResult({ impacts: [impact({ level: "unresolved", targetId: "" })] }),
+  ];
+  for (const result of incompleteResults) {
+    const store = createPlanStore({ impact: async () => result });
+    const { id } = store.open({ plan: PLAN });
+    await store.fill(memWs(SYSTEM));
+    assert.equal(store.current().status, "error");
+    assert.match(store.current().note, /could not place every change/i);
+    assert.equal(store.resolve(id, { accepted: ["impact:1"], nodes: NODES }), false);
+  }
 });
 
 test("browser counts are safe bounded integers and provider notes are normalized and bounded", async () => {
@@ -267,7 +263,7 @@ test("browser counts are safe bounded integers and provider notes are normalized
   }
 });
 
-test("call failures, malformed envelopes, and impact 404s stay errors with complete display coverage", async () => {
+test("call failures, malformed envelopes, and impact 404s stay errors without publishing placement", async () => {
   const failures = [
     {
       name: "provider failure",
@@ -300,56 +296,18 @@ test("call failures, malformed envelopes, and impact 404s stay errors with compl
     assert.equal(state.status, "error", failure.name);
     assert.equal(state.phase, "", failure.name);
     assert.match(state.note, failure.note, failure.name);
-    assert.deepEqual(state.impacts.map(({ key, level, targetId, title, steps }) =>
-      ({ key, level, targetId, title, steps })), [
-      { key: "impact:1", level: "unresolved", targetId: "", title: "Needs review", steps: [1] },
-      { key: "impact:2", level: "unresolved", targetId: "", title: "Needs review", steps: [2] },
-    ], failure.name);
-    assert.ok(state.impacts.every((entry) =>
-      ["additions", "removals", "responsibilities", "connections", "disconnections"]
-        .every((field) => Array.isArray(entry[field]) && entry[field].length === 0)), failure.name);
+    assert.deepEqual(state.impacts, [], failure.name);
     assert.equal(store.resolve(id, { accepted: state.impacts.map((entry) => entry.key), nodes: NODES }), false);
     assert.equal(store.current().status, "error");
   }
 });
 
-test("partial review can be approved using only trusted impact keys", async () => {
-  const kept = impact({
-    level: "unresolved", targetId: "", title: "Confirm limiter placement", why: "The component is unclear.", size: "",
-  });
-  const store = createPlanStore({
-    impact: async () => readyResult({ impacts: [kept], outcome: "partial" }),
-  });
-  const { id } = store.open({ plan: PLAN });
-  await store.fill(memWs(SYSTEM));
-  const waiting = store.wait(id, 5_000);
-
-  assert.equal(store.resolve(id, {
-    accepted: ["impact:1", "impact:unknown"],
-    nodes: [{ id: "server", name: "Renamed Server" }, { id: "foreign", name: "Foreign" }],
-  }), true);
-  const result = await waiting;
-  assert.equal(result.status, "resolved");
-  assert.match(result.brief, /NEEDS REVIEW/);
-  assert.match(result.brief, /Confirm limiter placement/);
-  assert.match(result.brief, /Renamed Server/);
-  assert.doesNotMatch(result.brief, /Foreign|impact:unknown/);
-  assert.equal(store.current().phase, "");
-});
-
-test("skip releases the review from working, ready, partial, and error", async () => {
+test("skip releases the review from working, ready, and error", async () => {
   const setups = [
     async (store) => store.open({ plan: PLAN }),
     async (store) => {
       const opened = store.open({ plan: PLAN });
       await store.fill(memWs(SYSTEM), { impact: async () => readyResult() });
-      return opened;
-    },
-    async (store) => {
-      const opened = store.open({ plan: PLAN });
-      await store.fill(memWs(SYSTEM), {
-        impact: async () => readyResult({ impacts: [impact({ level: "unresolved", targetId: "", size: "" })], outcome: "partial" }),
-      });
       return opened;
     },
     async (store) => {
@@ -804,7 +762,7 @@ test("the cold concurrency quality gate defaults off and keeps matching serial",
   assert.equal(store.current().status, "ready");
 });
 
-test("enabled cold concurrency has call depth group then max of naming and provisional matching", async () => {
+test("enabled cold concurrency uses one provisional call and at most one constrained repair", async () => {
   const naming = deferred();
   const matching = deferred();
   const matchingStarted = deferred();
@@ -819,6 +777,8 @@ test("enabled cold concurrency has call depth group then max of naming and provi
     dependencies: new Map([["group:server", []]]), excerpts: new Map(), dropped: [],
   };
   let impactCalls = 0;
+  let modelCalls = 0;
+  let repairPrompt = "";
   let reportNamingProgress;
   const { store, states } = recordingStore({
     coldImpactConcurrency: true,
@@ -836,15 +796,30 @@ test("enabled cold concurrency has call depth group then max of naming and provi
       moves: [{ t: "addNode", node: NODES[0] }],
       idFor: new Map([["group:server", "server"]]),
     }),
-    impact: async (context, _steps, options) => {
+    impact: async (context, steps, options = {}) => {
       impactCalls++;
-      events.push("match:start");
-      matchingStarted.resolve();
-      assert.equal(store.current().phase, "matching_plan");
-      assert.equal(options.deferValidation, true);
-      assert.equal(context.nodes.length, 0);
-      assert.equal(context.groups[0].ref, "group:server");
-      return matching.promise;
+      return planImpact(context, steps, {
+        ...options,
+        call: async (request) => {
+          modelCalls++;
+          if (options.deferValidation) {
+            events.push("match:start");
+            matchingStarted.resolve();
+            assert.equal(store.current().phase, "matching_plan");
+            assert.equal(context.nodes.length, 0);
+            assert.equal(context.groups[0].ref, "group:server");
+            return matching.promise;
+          }
+          events.push("repair:start");
+          repairPrompt = request.prompt;
+          assert.equal(context.nodes[0].id, "server");
+          return {
+            parsed: { impacts: [impact({ targetId: "server" })] },
+            provider: "test-provider",
+            model: "repair-model",
+          };
+        },
+      });
     },
   });
   store.open({ plan: PLAN });
@@ -854,7 +829,7 @@ test("enabled cold concurrency has call depth group then max of naming and provi
   assert.deepEqual(events, ["group:done", "name:start", "match:start"]);
   assert.equal(store.current().status, "working");
   matching.resolve({
-    raw: { impacts: [impact({ targetId: "group:server" })] },
+    parsed: { impacts: [] },
     provider: "test-provider",
     model: "test-model",
   });
@@ -869,7 +844,10 @@ test("enabled cold concurrency has call depth group then max of naming and provi
   });
   await filling;
 
-  assert.equal(impactCalls, 1, "the provisional match is the only impact call");
+  assert.equal(impactCalls, 2, "the provisional match gets only one repair invocation");
+  assert.equal(modelCalls, 2, "the provisional response and repair exhaust the model-call budget");
+  assert.match(repairPrompt, /Valid target choices:/);
+  assert.match(repairPrompt, /server — Server/);
   assert.equal(store.current().status, "ready");
   assert.equal(store.current().impacts[0].targetId, "server");
   assert.deepEqual(store.current().nodes.map((node) => node.id), ["server"]);
@@ -990,8 +968,8 @@ test("truncation stays visible in browser state and the accepted brief", async (
   const numbers = Array.from({ length: 60 }, (_, index) => index + 1);
   const store = createPlanStore({
     impact: async () => readyResult({
-      impacts: [impact({ level: "support", targetId: "", size: "", steps: numbers })],
-      coverage: { claimed: 60, total: 60 },
+      impacts: [impact({ steps: numbers })],
+      coverage: { claimed: 60, total: 60, complete: true },
     }),
   });
   const { id } = store.open({ plan: LONG_PLAN });
@@ -1101,7 +1079,7 @@ test("a skipped review's late attempt cannot complete a newer review", async () 
 
   secondImpact.resolve(readyResult({
     impacts: [impact({ title: "Current second review", steps: [1] })],
-    coverage: { claimed: 1, total: 1 },
+    coverage: { claimed: 1, total: 1, complete: true },
   }));
   await secondFill;
   assert.equal(store.current().status, "ready");

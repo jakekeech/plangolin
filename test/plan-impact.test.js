@@ -596,25 +596,42 @@ test("remapImpactTargets remaps temporary component references without mutating 
   assert.equal(raw.impacts[0].targetId, "group:api");
 });
 
-test("planImpact calls the hosted impact task and derives a partial outcome from validation", async () => {
+test("planImpact retries only rejected steps with valid target choices", async () => {
   const calls = [];
+  const responses = [
+    {
+      parsed: { impacts: [
+        impact({ steps: [1] }),
+        impact({ targetId: "", title: "REJECTED MODEL TEXT", steps: [2] }),
+      ] },
+      provider: "openai",
+      model: "first-model",
+    },
+    {
+      parsed: { impacts: [impact({ targetId: "api", steps: [2] })] },
+      provider: "openai",
+      model: "repair-model",
+    },
+  ];
   const result = await planImpact({ nodes: NODES, edges: EDGES }, STEPS.slice(0, 2), {
     call: async (request) => {
       calls.push(request);
-      return {
-        parsed: { impacts: [impact({ steps: [1] })] },
-        provider: "openai",
-        model: "test-model",
-      };
+      return responses.shift();
     },
   });
 
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0].task, "impact");
   assert.match(calls[0].prompt, /1\. Add limiter/);
+  assert.match(calls[1].prompt, /Valid target choices:/);
+  assert.match(calls[1].prompt, /api — API Server/);
+  assert.match(calls[1].prompt, /invalid_target/);
+  assert.match(calls[1].prompt, /2\. Update the API request handler\./);
+  assert.doesNotMatch(calls[1].prompt, /1\. Add limiter|REJECTED MODEL TEXT/);
+  assert.deepEqual(result.impacts[0].steps, [1, 2]);
   assert.equal(result.provider, "openai");
-  assert.equal(result.model, "test-model");
-  assert.equal(result.outcome, "partial");
+  assert.equal(result.model, "repair-model");
+  assert.equal(result.outcome, "ready");
 });
 
 test("planImpact can defer provisional validation until group refs are remapped", async () => {
@@ -633,13 +650,30 @@ test("planImpact can defer provisional validation until group refs are remapped"
   assert.equal("outcome" in result, false);
 });
 
-test("planImpact derives ready only from a successful fully validated response", async () => {
+test("planImpact does not retry a complete first response", async () => {
+  let calls = 0;
   const result = await planImpact({ nodes: NODES, edges: EDGES }, [STEPS[1]], {
-    call: async () => ({
-      parsed: { impacts: [impact()] }, provider: "openai", model: "test-model",
-    }),
+    call: async () => {
+      calls++;
+      return { parsed: { impacts: [impact()] }, provider: "openai", model: "test-model" };
+    },
   });
+  assert.equal(calls, 1);
   assert.equal(result.outcome, "ready");
+});
+
+test("planImpact fails closed after one invalid retry", async () => {
+  let calls = 0;
+  await assert.rejects(
+    planImpact({ nodes: NODES, edges: EDGES }, [STEPS[1]], {
+      call: async () => {
+        calls++;
+        return { parsed: { impacts: [] }, provider: "openai", model: "test-model" };
+      },
+    }),
+    (error) => error.userFacing && /could not place every change/i.test(error.message),
+  );
+  assert.equal(calls, 2);
 });
 
 test("planImpact propagates call failures and rejects a malformed successful envelope", async () => {

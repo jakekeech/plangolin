@@ -45,6 +45,12 @@ const boundedCount = (value) => Number.isFinite(value)
 const boundedNote = (value) => (typeof value === "string" ? value : "")
   .replace(/\s+/g, " ").trim().slice(0, MAX_BROWSER_NOTE_LENGTH);
 
+const placementError = () => {
+  const error = new Error("Could not place every change in this plan. Review it by hand.");
+  error.userFacing = true;
+  return error;
+};
+
 const sheetNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
   .filter((node) => node && typeof node === "object" && typeof node.id === "string");
 
@@ -173,14 +179,17 @@ export function createPlanStore(dependencies = {}) {
 
   const completeAttempt = (token, result) => {
     if (!isCurrentAttempt(token) || review.status !== "working") return false;
-    const impacts = result.impacts;
+    const impacts = Array.isArray(result?.impacts) ? result.impacts : [];
+    const complete = result?.outcome === "ready" && result?.coverage?.complete === true &&
+      impacts.length > 0 && impacts.every((entry) =>
+        entry?.level === "system" || entry?.level === "component");
+    if (!complete) return failAttempt(token, placementError());
+
     publish({ phase: "arranging_review" });
-    const partial = result.outcome === "partial" || result.diagnostics?.invalidOperations > 0 ||
-      impacts.some((entry) => entry.level === "unresolved");
     review.diagnostics = result.diagnostics || {};
     review.accepted = new Set(impacts.map((entry) => entry.key));
     publish({
-      status: partial ? "partial" : "ready",
+      status: "ready",
       impacts,
       reach: planReach(review.edges, changedIds(impacts)),
       note: truncationNote(review),
@@ -259,15 +268,21 @@ export function createPlanStore(dependencies = {}) {
       edges: finalMap.edges,
       steps: token.steps,
     });
-    const partial = validated.diagnostics.invalidOperations > 0 ||
-      validated.impacts.some((entry) => entry.level === "unresolved");
+    if (!validated.coverage.complete) {
+      const impactResult = await (options.impact || deps.impact)(
+        { nodes: finalMap.nodes, edges: finalMap.edges },
+        token.steps,
+        { initialValidation: validated },
+      );
+      return { ...finalMap, impactResult };
+    }
     return {
       ...finalMap,
       impactResult: {
         ...validated,
         provider: provisional.provider,
         model: provisional.model,
-        outcome: partial ? "partial" : "ready",
+        outcome: "ready",
       },
     };
   };
