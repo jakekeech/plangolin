@@ -43,23 +43,20 @@ product supports.
 
 **2. Draft the changes the diagram needs.**
 
-Read the code first if there is any. Write a compact decision plan with one
-item per meaningful system or component change. A typical plan has 3–8 items.
-Each item says what changes, where it belongs, and which existing or proposed
-part it connects to. Group its file, function, test, and sequencing details
-inside that item instead of turning them into separate plan steps.
+Read the code first if there is any. Write 3–8 sections in exactly this shape:
+
+```markdown
+## 1. <change and location>
+<connections plus supporting implementation/testing detail>
+```
+
+Every meaningful change must be a numbered section. Each section says what
+changes, where it belongs, and which existing or proposed part it connects to.
+Keep its files, functions, tests, configuration, documentation, rollout, and
+sequencing detail inside that numbered decision. Do not add an unnumbered
+preamble, alternatives section, support section, or repeated order section.
 Use names from the current system map as containers; name a lower-level part
 only when the plan actually adds or changes that part inside the container.
-
-The saved plan has this shape:
-
-1. Proposed nodes and connections.
-2. Changes inside existing components, named at the deepest justified level.
-3. Supporting work folded into the change it supports.
-
-Current-state background, decision tables, alternative essays, and a second
-copy of the implementation sequence do not belong in the saved plan. Keep the
-judgement; remove the repetition. The diagram is the overview.
 
 **Write no code and change no files yet.** The whole point is that the user
 sees the shape before anything is built.
@@ -126,13 +123,9 @@ It prints the agreed scope. Read it carefully:
 - **REMOVE** — accepted component removals and disconnections
 - **UPDATE RESPONSIBILITY** — accepted changes to existing component roles
 - **INTERNAL WORK** — accepted internal changes, grouped by component
-- **SUPPORTING WORK** — accepted support changes, grouped by component or
-  project
 - **OUT OF SCOPE** — every rejected impact with its original steps. **Do not
   build these.** This is the most important section: it makes every rejection
   a continuing instruction rather than an absence of discussion.
-- **NEEDS REVIEW** — accepted unresolved steps. Confirm the intended component
-  before inferring missing scope.
 - **DO NOT TOUCH** — unaffected existing components; preserve their current
   behavior
 

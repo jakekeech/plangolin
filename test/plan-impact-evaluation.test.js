@@ -45,7 +45,7 @@ function corpusCase(overrides = {}) {
     expected: {
       placements: [
         { steps: [1], levels: ["component"], allowedTargets: ["auth"] },
-        { steps: [2], levels: ["support"], allowedTargets: ["auth"] },
+        { steps: [2], levels: ["component"], allowedTargets: ["auth"] },
       ],
       allowedStructuralOperations: [],
       requiresStructuralChange: false,
@@ -69,12 +69,13 @@ function impact(overrides = {}) {
   };
 }
 
-test("scores repaired client coverage separately from raw model placement", () => {
+test("scores incomplete placement as a retry and terminal placement failure", () => {
   const score = scoreCase(corpusCase(), { impacts: [impact()] });
 
-  assert.deepEqual(score.clientCoverage, { covered: 2, total: 2, ratio: 1 });
+  assert.deepEqual(score.clientCoverage, { covered: 1, total: 2, ratio: 0.5 });
   assert.deepEqual(score.rawCoverage, { covered: 1, total: 2, ratio: 0.5 });
-  assert.equal(score.generatedUnresolvedFallbacks, 1);
+  assert.deepEqual(score.retryRate, { retried: 1, total: 1, ratio: 1 });
+  assert.deepEqual(score.terminalPlacementFailures, { count: 1, total: 1, ratio: 1 });
 });
 
 test("counts kept structural operations that semantic predicates do not allow", () => {
@@ -125,17 +126,18 @@ test("uses the production validator's invalid-operation diagnostics", () => {
 
   assert.equal(score.invalidOperations, 1);
   assert.equal(score.droppedProposals, 0);
-  assert.equal(score.generatedUnresolvedFallbacks, 0);
+  assert.deepEqual(score.terminalPlacementFailures, { count: 1, total: 1, ratio: 1 });
 });
 
 test("repeat agreement ignores prose but detects semantic placement changes", () => {
-  const first = { impacts: [impact()] };
+  const first = { impacts: [impact({ steps: [1, 2] })] };
   const sameSemantics = { impacts: [impact({
-    title: "Refresh auth checks", why: "Different safe wording.",
+    title: "Refresh auth checks", why: "Different safe wording.", steps: [1, 2],
   })] };
-  const differentPlacement = { impacts: [impact({
-    level: "support", targetId: "api",
-  })] };
+  const differentPlacement = { impacts: [
+    impact({ steps: [1] }),
+    impact({ level: "component", targetId: "api", steps: [2] }),
+  ] };
 
   assert.deepEqual(scoreRepeatAgreement(corpusCase(), [first, sameSemantics]), {
     agreements: 1, comparisons: 1, ratio: 1,
@@ -151,9 +153,9 @@ test("scores target and category accuracy for each labeled plan step", () => {
     impact({ level: "component", targetId: "auth", steps: [2], title: "Test authentication" }),
   ] });
 
-  assert.deepEqual(score.categoryAccuracy, { correct: 1, total: 2, ratio: 0.5 });
+  assert.deepEqual(score.categoryAccuracy, { correct: 2, total: 2, ratio: 1 });
   assert.deepEqual(score.targetAccuracy, { correct: 2, total: 2, ratio: 1 });
-  assert.deepEqual(score.targetCategoryAccuracy, { correct: 1, total: 2, ratio: 0.5 });
+  assert.deepEqual(score.targetCategoryAccuracy, { correct: 2, total: 2, ratio: 1 });
 });
 
 test("scores required file evidence without matching response prose", () => {
@@ -225,7 +227,7 @@ test("live runner crosses named and provisional contexts with high and medium ef
       calls.push({ caseId, contextKind, effort });
       const targetId = contextKind === "named" ? "auth" : "group:auth";
       return { parsed: { impacts: [impact({ targetId }), impact({
-        level: "support", targetId, steps: [2], title: "Test authentication",
+        level: "component", targetId, steps: [2], title: "Test authentication",
       })] }, appliedEffort: effort };
     },
   });
@@ -292,7 +294,7 @@ test("allowlisted execution failure without an expected class fails locally", as
       return {
         parsed: { impacts: [
           impact({ targetId }),
-          impact({ level: "support", targetId, steps: [2] }),
+          impact({ level: "component", targetId, steps: [2] }),
         ] },
         appliedEffort: effort,
         evidence: "live-model",
@@ -328,7 +330,7 @@ test("local failure cases do not change semantic quality aggregates", async () =
     return {
       parsed: { impacts: [
         impact({ targetId }),
-        impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+        impact({ level: "component", targetId, steps: [2], title: "Test authentication" }),
       ] },
       appliedEffort: effort,
       evidence: "live-model",
@@ -340,7 +342,7 @@ test("local failure cases do not change semantic quality aggregates", async () =
   });
 
   const semanticMetrics = [
-    "clientCoverage", "rawCoverage", "generatedUnresolvedFallbacks",
+    "clientCoverage", "rawCoverage", "retryRate", "terminalPlacementFailures",
     "falseStructuralOperations", "falseNoArchitectureConclusions", "invalidOperations",
     "droppedProposals", "categoryAccuracy", "targetAccuracy", "targetCategoryAccuracy",
     "evidenceAccuracy", "repeatAgreement",
@@ -413,7 +415,7 @@ test("separate effort URLs run against the ordinary service response contract", 
           return {
             parsed: { impacts: [
               impact({ targetId }),
-              impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+              impact({ level: "component", targetId, steps: [2], title: "Test authentication" }),
             ] },
             provider: "live-provider",
             model: "live-model",
@@ -461,7 +463,7 @@ test("evaluation-aware service mode sends an install id accepted by the service 
           return {
             parsed: { impacts: [
               impact({ targetId }),
-              impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+              impact({ level: "component", targetId, steps: [2], title: "Test authentication" }),
             ] },
             evaluation: { effort: body.evaluation.effort, evidence: "live-model" },
           };
@@ -501,7 +503,7 @@ test("ordinary effort URLs reject whitespace-only provider or model identity", a
             return {
               parsed: { impacts: [
                 impact({ targetId }),
-                impact({ level: "support", targetId, steps: [2] }),
+                impact({ level: "component", targetId, steps: [2] }),
               ] },
               ...identity,
             };
@@ -570,6 +572,7 @@ test("effort URL validation compares canonical root impact endpoints", async () 
 });
 
 function expectedResponse(testCase, contextKind) {
+  if (testCase.expected.outcome === "terminal-placement-failure") return { impacts: [] };
   const provisional = contextKind === "provisional";
   const reverseIds = new Map(Object.entries(testCase.contexts.provisional.idFor || {})
     .map(([temporary, final]) => [final, temporary]));
@@ -595,7 +598,7 @@ function expectedResponse(testCase, contextKind) {
     targetId: mappedId(placement.allowedTargets?.[0] || ""),
     title: `Evaluate ${testCase.id} ${index + 1}`,
     why: "Matches the semantic predicate.",
-    size: placement.levels[0] === "unresolved" ? "" : "small",
+    size: "small",
     steps: placement.steps,
     files: placement.requiredFiles || [],
     symbols: [],
@@ -696,7 +699,18 @@ test("fixed corpus covers every specified semantic and resilience scenario", asy
     assert.match(entry.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.ok(Array.isArray(entry.steps) && entry.steps.length > 0, entry.id);
     assert.ok(entry.contexts?.named && entry.contexts?.provisional, entry.id);
-    assert.ok(Array.isArray(entry.expected?.placements) || entry.expected?.failureClass, entry.id);
+    assert.ok(
+      Array.isArray(entry.expected?.placements) || entry.expected?.failureClass ||
+        entry.expected?.outcome === "terminal-placement-failure",
+      entry.id,
+    );
+    for (const placement of entry.expected?.placements || []) {
+      assert.ok(placement.levels.every((level) => level === "system" || level === "component"), entry.id);
+    }
+    if (entry.expected?.outcome) {
+      assert.equal(entry.expected.outcome, "terminal-placement-failure", entry.id);
+    }
   }
+  assert.doesNotMatch(text, /"(?:support|unresolved)"/);
   assert.doesNotMatch(text, /api[_-]?key|authorization|sourceExcerpt|exactResponse|rawOutput/i);
 });

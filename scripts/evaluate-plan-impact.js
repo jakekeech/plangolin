@@ -23,6 +23,8 @@ const list = (value) => Array.isArray(value) ? value : [];
 const ratio = (correct, total) => total ? correct / total : 1;
 const metric = (correct, total) => ({ correct, total, ratio: ratio(correct, total) });
 const coverageMetric = (covered, total) => ({ covered, total, ratio: ratio(covered, total) });
+const retryMetric = (retried, total) => ({ retried, total, ratio: ratio(retried, total) });
+const failureMetric = (count, total) => ({ count, total, ratio: ratio(count, total) });
 
 function operationIdentity(name, operation) {
   if (name === "additions" || name === "removals" || name === "responsibilities") {
@@ -68,6 +70,8 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
     .filter((issue) => issue.code === "missing_step")
     .map((issue) => issue.step));
   const totalSteps = list(testCase.steps).length;
+  const expectedTerminal = testCase.expected?.outcome === "terminal-placement-failure";
+  const terminalPlacementFailure = !validated.coverage.complete;
   const operations = structuralOperations(validated.impacts);
   const allowedOperations = new Set(list(testCase.expected?.allowedStructuralOperations));
 
@@ -109,9 +113,17 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
 
   return {
     caseId: testCase.id,
-    clientCoverage: coverageMetric(validated.coverage.claimed, validated.coverage.total),
-    rawCoverage: coverageMetric(totalSteps - missingSteps.size, totalSteps),
-    generatedUnresolvedFallbacks: missingSteps.size,
+    clientCoverage: expectedTerminal
+      ? coverageMetric(0, 0)
+      : coverageMetric(validated.coverage.claimed, validated.coverage.total),
+    rawCoverage: expectedTerminal
+      ? coverageMetric(0, 0)
+      : coverageMetric(totalSteps - missingSteps.size, totalSteps),
+    retryRate: retryMetric(terminalPlacementFailure ? 1 : 0, 1),
+    terminalPlacementFailures: failureMetric(terminalPlacementFailure ? 1 : 0, 1),
+    expectedTerminalChecks: expectedTerminal ? 1 : 0,
+    expectedTerminalMatches: expectedTerminal && terminalPlacementFailure ? 1 : 0,
+    unexpectedTerminalPlacementFailures: !expectedTerminal && terminalPlacementFailure ? 1 : 0,
     falseStructuralOperations: operations.filter((operation) => !allowedOperations.has(operation)).length,
     falseNoArchitectureConclusions:
       testCase.expected?.requiresStructuralChange === true && operations.length === 0 ? 1 : 0,
@@ -122,7 +134,9 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
     targetCategoryAccuracy: metric(combinedCorrect, combinedTotal),
     evidenceAccuracy: metric(evidenceCorrect, evidenceTotal),
     structuralOperations: operations.sort(),
-    semanticSignature: semanticSignature(validated.impacts),
+    semanticSignature: terminalPlacementFailure
+      ? "outcome:terminal-placement-failure"
+      : semanticSignature(validated.impacts),
   };
 }
 
@@ -159,7 +173,11 @@ export function summarizeScores(scores) {
   const totals = {
     clientCoverage: { covered: 0, total: 0 },
     rawCoverage: { covered: 0, total: 0 },
-    generatedUnresolvedFallbacks: 0,
+    retryRate: { retried: 0, total: 0 },
+    terminalPlacementFailures: { count: 0, total: 0 },
+    expectedTerminalChecks: 0,
+    expectedTerminalMatches: 0,
+    unexpectedTerminalPlacementFailures: 0,
     falseStructuralOperations: 0,
     falseNoArchitectureConclusions: 0,
     invalidOperations: 0,
@@ -178,8 +196,13 @@ export function summarizeScores(scores) {
     totals.clientCoverage.total += score.clientCoverage?.total || 0;
     totals.rawCoverage.covered += score.rawCoverage?.covered || 0;
     totals.rawCoverage.total += score.rawCoverage?.total || 0;
+    totals.retryRate.retried += score.retryRate?.retried || 0;
+    totals.retryRate.total += score.retryRate?.total || 0;
+    totals.terminalPlacementFailures.count += score.terminalPlacementFailures?.count || 0;
+    totals.terminalPlacementFailures.total += score.terminalPlacementFailures?.total || 0;
     for (const name of [
-      "generatedUnresolvedFallbacks", "falseStructuralOperations",
+      "expectedTerminalChecks", "expectedTerminalMatches", "unexpectedTerminalPlacementFailures",
+      "falseStructuralOperations",
       "falseNoArchitectureConclusions", "invalidOperations", "droppedProposals",
       "expectedFailureChecks", "expectedFailureMatches",
       "unexpectedFailures",
@@ -195,6 +218,10 @@ export function summarizeScores(scores) {
   }
   totals.clientCoverage.ratio = ratio(totals.clientCoverage.covered, totals.clientCoverage.total);
   totals.rawCoverage.ratio = ratio(totals.rawCoverage.covered, totals.rawCoverage.total);
+  totals.retryRate.ratio = ratio(totals.retryRate.retried, totals.retryRate.total);
+  totals.terminalPlacementFailures.ratio = ratio(
+    totals.terminalPlacementFailures.count, totals.terminalPlacementFailures.total,
+  );
   for (const name of [
     "categoryAccuracy", "targetAccuracy", "targetCategoryAccuracy", "evidenceAccuracy",
   ]) {
@@ -218,6 +245,14 @@ export function evaluateGate({ named, provisional, evidence, tolerance = 0.05 })
   if ((named.expectedFailureMatches ?? 0) < (named.expectedFailureChecks ?? 0) ||
       (provisional.expectedFailureMatches ?? 0) < (provisional.expectedFailureChecks ?? 0)) {
     reasons.push("failure-handling scenarios did not match their expected class");
+  }
+  if ((named.expectedTerminalMatches ?? 0) < (named.expectedTerminalChecks ?? 0) ||
+      (provisional.expectedTerminalMatches ?? 0) < (provisional.expectedTerminalChecks ?? 0)) {
+    reasons.push("terminal placement scenarios did not fail placement as expected");
+  }
+  if ((named.unexpectedTerminalPlacementFailures ?? 0) > 0 ||
+      (provisional.unexpectedTerminalPlacementFailures ?? 0) > 0) {
+    reasons.push("visible placement scenarios ended in terminal placement failure");
   }
   if (coverageRatio(provisional.clientCoverage) !== 1) {
     reasons.push("provisional repaired step coverage is below 100%");

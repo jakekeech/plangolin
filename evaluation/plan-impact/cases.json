@@ -42,7 +42,7 @@
       "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
     },
     "steps": [{ "n": 1, "text": "Add API timeout tests." }, { "n": 2, "text": "Document the timeout troubleshooting workflow." }],
-    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": ["api"] }, { "steps": [2], "levels": ["support"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+    "expected": { "placements": [{ "steps": [1, 2], "levels": ["component"], "allowedTargets": ["api"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
   },
   {
     "id": "component-scoped-support",
@@ -51,7 +51,7 @@
       "provisional": { "groups": [{ "ref": "group:billing", "files": ["src/billing.js"], "rationale": "Contains charge calculations.", "dependencies": [] }], "edges": [], "idFor": { "group:billing": "billing" } }
     },
     "steps": [{ "n": 1, "text": "Add billing rounding regression tests." }],
-    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": ["billing"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+    "expected": { "placements": [{ "steps": [1], "levels": ["component"], "allowedTargets": ["billing"] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
   },
   {
     "id": "project-wide-support",
@@ -60,7 +60,7 @@
       "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns request entry points.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api" } }
     },
     "steps": [{ "n": 1, "text": "Add a release checklist for all packages." }],
-    "expected": { "placements": [{ "steps": [1], "levels": ["support"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+    "expected": { "outcome": "terminal-placement-failure" }
   },
   {
     "id": "existing-file-step",
@@ -78,7 +78,7 @@
       "provisional": { "groups": [{ "ref": "group:api", "files": ["src/api.js"], "rationale": "Owns requests.", "dependencies": [] }, { "ref": "group:worker", "files": ["src/worker.js"], "rationale": "Runs jobs.", "dependencies": [] }], "edges": [], "idFor": { "group:api": "api", "group:worker": "worker" } }
     },
     "steps": [{ "n": 1, "text": "Put the new policy in the appropriate place." }],
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+    "expected": { "outcome": "terminal-placement-failure" }
   },
   {
     "id": "empty-project",
@@ -90,7 +90,7 @@
     "id": "unreadable-project",
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Update the existing request policy." }],
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": false }
+    "expected": { "outcome": "terminal-placement-failure" }
   },
   {
     "id": "large-capped-project",
@@ -122,35 +122,35 @@
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Add a request cache component." }],
     "execution": { "scenario": "invalid-addition-reference" },
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+    "expected": { "outcome": "terminal-placement-failure", "fixtureOnly": true }
   },
   {
     "id": "invalid-removal-reference",
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Remove the retired request worker." }],
     "execution": { "scenario": "invalid-removal-reference" },
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+    "expected": { "outcome": "terminal-placement-failure", "fixtureOnly": true }
   },
   {
     "id": "invalid-responsibility-reference",
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Make the retired worker validate requests." }],
     "execution": { "scenario": "invalid-responsibility-reference" },
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+    "expected": { "outcome": "terminal-placement-failure", "fixtureOnly": true }
   },
   {
     "id": "invalid-connection-reference",
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Connect the API to the retired worker." }],
     "execution": { "scenario": "invalid-connection-reference" },
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+    "expected": { "outcome": "terminal-placement-failure", "fixtureOnly": true }
   },
   {
     "id": "invalid-disconnection-reference",
     "contexts": { "named": { "nodes": [], "edges": [] }, "provisional": { "groups": [], "edges": [], "idFor": {} } },
     "steps": [{ "n": 1, "text": "Disconnect the API from the retired worker." }],
     "execution": { "scenario": "invalid-disconnection-reference" },
-    "expected": { "placements": [{ "steps": [1], "levels": ["unresolved"], "allowedTargets": [""] }], "allowedStructuralOperations": [], "requiresStructuralChange": true, "fixtureOnly": true }
+    "expected": { "outcome": "terminal-placement-failure", "fixtureOnly": true }
   },
   {
     "id": "timeout-failure",

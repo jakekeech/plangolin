@@ -32,8 +32,8 @@ test("the three version strings agree", () => {
   );
 });
 
-test("the simplified adaptive review release is 0.4.1", () => {
-  assert.equal(read("package.json").version, "0.4.1");
+test("the total plan placement release is 0.4.2", () => {
+  assert.equal(read("package.json").version, "0.4.2");
 });
 
 test("the version is a plain three-part number", () => {

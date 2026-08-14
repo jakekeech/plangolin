@@ -22,13 +22,13 @@ const SHEET = {
 
 const readyImpact = (steps) => ({
   impacts: [{
-    key: "impact:1", level: "support", targetId: "", title: "Build the plan",
+    key: "impact:1", level: "component", targetId: "server", title: "Build the plan",
     why: "Carries out the requested work.", size: "small", steps: steps.map((step) => step.n),
     files: [], symbols: [], additions: [], removals: [], responsibilities: [],
     connections: [], disconnections: [],
   }],
   diagnostics: { invalidOperations: 0, issues: [] },
-  coverage: { claimed: steps.length, total: steps.length },
+  coverage: { claimed: steps.length, total: steps.length, complete: true },
   provider: "test", model: "test", outcome: "ready",
 });
 
@@ -150,8 +150,8 @@ test("resolve rejects approval after an error but permits skip", async () => {
   } finally { await s.close(); }
 });
 
-for (const outcome of ["ready", "partial"]) {
-  test(`resolve approves a ${outcome} review`, async () => {
+for (const [outcome, approved] of [["ready", true], ["partial", false]]) {
+  test(`resolve ${approved ? "approves" : "rejects approval for"} a ${outcome} review`, async () => {
     const plans = createPlanStore();
     const { id } = plans.open({ plan: "1. Add a limiter\n" });
     await plans.fill(fakeWs(SHEET), {
@@ -160,7 +160,7 @@ for (const outcome of ["ready", "partial"]) {
     const s = await listen(plans);
     try {
       const approval = await post(s.base, "/api/plan/resolve", { id, accepted: [], nodes: SHEET.nodes });
-      assert.deepEqual(approval, { ok: true });
+      assert.deepEqual(approval, { ok: approved });
     } finally { await s.close(); }
   });
 }

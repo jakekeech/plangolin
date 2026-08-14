@@ -1,11 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   buildImpactPrompt,
   planImpact,
   remapImpactTargets,
   validateImpacts,
 } from "../src/plan-impact.js";
+import { splitSteps } from "../src/plan-steps.js";
+import {
+  buildPlanProjection,
+  reviewMapEdges,
+  temporaryChildren,
+} from "../app/plan-projection.js";
 
 const NODES = [
   {
@@ -674,6 +681,112 @@ test("planImpact fails closed after one invalid retry", async () => {
     (error) => error.userFacing && /could not place every change/i.test(error.message),
   );
   assert.equal(calls, 2);
+});
+
+test("Pushpush authentication projects every decision visibly after one constrained retry", async () => {
+  const nodes = [
+    {
+      id: "privacy-analysis-app", name: "Privacy Analysis App", kind: "Expo app",
+      intent: "Lets users upload media and review detected personal information.",
+      anchor: { paths: ["app/_layout.tsx", "app/analyse.tsx", "app/index.tsx"] },
+    },
+    {
+      id: "pii-analysis-api", name: "PII Analysis API", kind: "Python API",
+      intent: "Accepts media analysis jobs and returns transcript-based PII findings.",
+      anchor: { paths: ["server/api.py", "server/video_pii_analyzer.py"] },
+    },
+    {
+      id: "service-test-tools", name: "Service Test Tools", kind: "Python CLI",
+      intent: "Checks local services and exercises media analysis with test files.",
+      anchor: { paths: ["server/health_monitor.py", "server/test_with_files.py"] },
+    },
+    {
+      id: "expo-tooling-config", name: "Expo Tooling Config", kind: "Expo config",
+      intent: "Supplies type and lint settings for the Expo project.",
+      anchor: { paths: ["eslint.config.js", "expo-env.d.ts"] },
+    },
+  ];
+  const edges = [{
+    id: "privacy-analysis-app__pii-analysis-api",
+    from: "privacy-analysis-app", to: "pii-analysis-api", label: "submits media",
+  }];
+  const plan = readFileSync(new URL("./fixtures/pushpush-auth-plan.md", import.meta.url), "utf8");
+  const steps = splitSteps(plan);
+  const responses = [
+    {
+      parsed: { impacts: [
+        impact({
+          level: "system", targetId: "", title: "Add user storage",
+          why: "Accounts and job ownership need durable storage.", steps: [1],
+          files: ["server/db.py"],
+          additions: [{
+            id: "user-store", name: "User Store", kind: "SQLite",
+            intent: "Persists accounts and job ownership.", dir: "server", files: ["server/db.py"],
+          }],
+          connections: [{ from: "pii-analysis-api", to: "user-store", label: "stores users" }],
+        }),
+        impact({
+          targetId: "pii-analysis-api", title: "Authenticate API requests and jobs",
+          why: "Routes and jobs must belong to the current user.", steps: [2, 3, 4, 5],
+          files: ["server/auth.py", "server/routes_auth.py", "server/api.py"],
+        }),
+        impact({
+          targetId: "privacy-analysis-app", title: "Add authenticated client sessions",
+          why: "The app must authenticate API calls and manage the user session.", steps: [6, 7],
+          files: ["app/lib/api.ts", "app/lib/auth.tsx"],
+        }),
+        impact({
+          level: "support", targetId: "", title: "Exercise authentication",
+          why: "The first response leaves the test placement invalid.", steps: [8],
+          files: ["server/test_auth.py"],
+        }),
+      ] },
+      provider: "fixture", model: "canned-first",
+    },
+    {
+      parsed: { impacts: [impact({
+        targetId: "pii-analysis-api", title: "Verify authentication and job isolation",
+        why: "The API owns authentication and job-isolation behavior.", steps: [8],
+        files: ["server/test_auth.py"],
+      })] },
+      provider: "fixture", model: "canned-retry",
+    },
+  ];
+  let calls = 0;
+  const result = await planImpact({ nodes, edges }, steps, {
+    call: async () => {
+      calls++;
+      return responses.shift();
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.outcome, "ready");
+  assert.deepEqual(result.coverage, { claimed: 8, total: 8, complete: true });
+  assert.deepEqual(result.impacts.flatMap((entry) => entry.steps).sort((a, b) => a - b),
+    [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.ok(result.impacts.every((entry) => entry.level === "system" || entry.level === "component"));
+
+  const system = result.impacts.find((entry) => entry.level === "system");
+  assert.deepEqual(system.additions.map((addition) => addition.id), ["user-store"]);
+  assert.deepEqual(system.connections, [
+    { from: "pii-analysis-api", to: "user-store", label: "stores users" },
+  ]);
+  assert.deepEqual(
+    result.impacts.filter((entry) => entry.level === "component")
+      .map((entry) => [entry.targetId, entry.steps]),
+    [["pii-analysis-api", [2, 3, 4, 5, 8]], ["privacy-analysis-app", [6, 7]]],
+  );
+
+  const review = { id: "pushpush-auth", status: "ready", steps, impacts: result.impacts };
+  const projection = buildPlanProjection(review, nodes, edges);
+  const userStore = projection.nodes.find((node) => node.sourceId === "user-store");
+  assert.ok(userStore);
+  assert.equal(projection.edges[0].from, "pii-analysis-api");
+  assert.equal(projection.edges[0].to, userStore.id);
+  assert.equal(temporaryChildren(projection, "pii-analysis-api").length, 1);
+  assert.equal(temporaryChildren(projection, "privacy-analysis-app").length, 1);
+  assert.deepEqual(reviewMapEdges(edges, review), edges);
 });
 
 test("planImpact propagates call failures and rejects a malformed successful envelope", async () => {

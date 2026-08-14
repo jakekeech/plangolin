@@ -21,13 +21,13 @@ function reviewableStore() {
   return createPlanStore({
     impact: async (_context, steps) => ({
       impacts: [{
-        key: "impact:1", level: "support", targetId: "", title: "Build the plan",
+        key: "impact:1", level: "component", targetId: "server", title: "Build the plan",
         why: "Carries out the requested work.", size: "small", steps: steps.map((step) => step.n),
         files: [], symbols: [], additions: [], removals: [], responsibilities: [],
         connections: [], disconnections: [],
       }],
       diagnostics: { invalidOperations: 0, issues: [] },
-      coverage: { claimed: steps.length, total: steps.length },
+      coverage: { claimed: steps.length, total: steps.length, complete: true },
       provider: "test", model: "test", outcome: "ready",
     }),
   });
@@ -41,7 +41,7 @@ function approveVia(urlHolder, accepted) {
       await new Promise((r) => setTimeout(r, 25));
       if (!urlHolder.url) continue;
       const { review } = await fetch(urlHolder.url + "/api/plan").then((r) => r.json()).catch(() => ({}));
-      if (!review || (review.status !== "ready" && review.status !== "partial")) continue;
+      if (!review || review.status !== "ready") continue;
       await fetch(urlHolder.url + "/api/plan/resolve", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: review.id, accepted, nodes: [{ id: "server", name: "Server" }] }),

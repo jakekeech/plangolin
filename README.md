@@ -77,8 +77,10 @@ setup: no separate npm install, API key, account, or build step.
 Structural changes stay at the system level. Internal work appears inside the
 most specific affected component. Tests, documentation, rollout, and other
 supporting details remain in the plan instead of becoming extra graph nodes.
-If plangolin cannot place a change safely, the panel says so without inventing
-a component on the canvas.
+Every plan item must belong to one of those visible decisions. If the first
+placement is incomplete, plangolin retries the rejected items once with the
+valid component choices. If anything still cannot be placed safely, the panel
+keeps the existing map visible and offers Retry or Skip; Approve is unavailable.
 
 ## What you are reviewing
 
@@ -209,9 +211,10 @@ Worth knowing before you rely on it:
   wires it to your database, or changes work inside an existing component. It
   cannot tell you the implementation will work.
 - **The mapping from plan steps to blocks is model-produced**, so a step can
-  land on the wrong block or on none. Every proposal carries the plan's own
-  wording under **Details**, which is there so you can check it
-  rather than trust it.
+  land on the wrong block. Every proposal carries the plan's own wording under
+  **Details**, which is there so you can check it rather than trust it. A step
+  that cannot be placed after one constrained retry fails the review instead
+  of becoming a hidden or approvable decision.
 - **A review waits ten minutes, then gives up** and lets the agent proceed with
   the plan as written. Nothing is a dead end, but an unanswered review is not a
   rejection.
