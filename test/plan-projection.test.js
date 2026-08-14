@@ -8,6 +8,7 @@ import {
   setImpactDecision,
   temporaryChildren,
 } from "../app/plan-projection.js";
+import * as planProjectionModule from "../app/plan-projection.js";
 
 const NODES = [
   { id: "backend", name: "Backend", kind: "System", intent: "Runs the product.", x: 20, y: 30 },
@@ -193,6 +194,54 @@ test("Project Support and Needs Review groups exist only when populated", () => 
   assert.deepEqual(groups.map((group) => temporaryChildren(populated, group.id).map((card) => card.impactKey)), [
     ["impact:docs"], ["impact:unknown"],
   ]);
+});
+
+test("a failed analysis projects every unresolved step under Needs Review", () => {
+  assert.equal(typeof planProjectionModule.projectionForReview, "function",
+    "the browser projection policy is behavior shared with tests");
+  const failed = {
+    ...review("review-error", [
+      impact({
+        key: "impact:error-1", level: "unresolved", targetId: "", title: "Needs review",
+        why: "Impact analysis failed.", size: "", steps: [1], files: [], symbols: [],
+      }),
+      impact({
+        key: "impact:error-2", level: "unresolved", targetId: "", title: "Needs review",
+        why: "Impact analysis failed.", size: "", steps: [2], files: [], symbols: [],
+      }),
+    ]),
+    status: "error",
+  };
+
+  const projected = planProjectionModule.projectionForReview(failed, NODES, EDGES, {
+    reviewId: "review-error", nodes: [], edges: [],
+    annotations: { removals: [], responsibilities: [], disconnections: [] },
+  });
+  const group = projected.nodes.find((node) => node.groupKind === "needs-review");
+
+  assert.equal(group.name, "Needs Review");
+  assert.deepEqual(
+    temporaryChildren(projected, group.id).map((card) => card.steps),
+    [[1], [2]],
+  );
+  assert.deepEqual(
+    temporaryChildren(projected, group.id).map(({ name, intent }) => ({ name, intent })),
+    [
+      { name: "Plan step 1", intent: "Change runJob in src/worker.js." },
+      { name: "Plan step 2", intent: "Add limiter and connect API to it." },
+    ],
+  );
+});
+
+test("failed, partial, and ready reviews expose their temporary projection", () => {
+  assert.equal(typeof planProjectionModule.planProjectionVisible, "function");
+  for (const status of ["error", "partial", "ready"]) {
+    assert.equal(planProjectionModule.planProjectionVisible({ status }), true, status);
+  }
+  for (const status of ["working", "resolved", "skipped", ""]) {
+    assert.equal(planProjectionModule.planProjectionVisible({ status }), false, status);
+  }
+  assert.equal(planProjectionModule.planProjectionVisible(null), false);
 });
 
 test("a proposed addition can contain a component change card", () => {

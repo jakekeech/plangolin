@@ -14,7 +14,9 @@ function operationId(base, operation, index, key) {
   return base + ":" + operation + ":" + index + (key ? ":" + namespacePart(key) : "");
 }
 
-function cardFor(reviewId, impact, parent, cardKind) {
+function cardFor(reviewId, impact, parent, cardKind, display = {}) {
+  const title = display.title || impact.title;
+  const why = display.why || impact.why;
   return {
     id: impactBase(reviewId, impact.key) + ":card",
     planType: "card",
@@ -22,10 +24,10 @@ function cardFor(reviewId, impact, parent, cardKind) {
     parent,
     impactKey: impact.key,
     level: impact.level,
-    name: impact.title,
-    title: impact.title,
-    intent: impact.why,
-    why: impact.why,
+    name: title,
+    title,
+    intent: why,
+    why,
     size: impact.size,
     steps: [...list(impact.steps)],
     files: [...list(impact.files)],
@@ -33,9 +35,36 @@ function cardFor(reviewId, impact, parent, cardKind) {
   };
 }
 
+const emptyProjection = () => ({
+  reviewId: "",
+  nodes: [],
+  edges: [],
+  annotations: { removals: [], responsibilities: [], disconnections: [] },
+});
+
+export function planProjectionVisible(review) {
+  return ["ready", "partial", "error"].includes(review && review.status || "");
+}
+
+/* A failed analysis still owns a complete, deterministic set of unresolved
+   impacts. Project those raw steps just like ready/partial impacts so the
+   browser can show Needs Review; only a working retry keeps the prior
+   projection in place to avoid flicker. */
+export function projectionForReview(review, nodes, edges, previousProjection) {
+  const status = review && review.status || "";
+  if (planProjectionVisible(review)) {
+    return buildPlanProjection(review, nodes, edges);
+  }
+  const previous = previousProjection || emptyProjection();
+  if (status === "working" && previous.reviewId === review.id) return previous;
+  return emptyProjection();
+}
+
 export function buildPlanProjection(review, nodes, edges) {
   const reviewId = review && review.id ? review.id : "review";
   const impacts = list(review && review.impacts);
+  const stepText = new Map(list(review && review.steps)
+    .map((step) => [step && step.n, String(step && step.text || "")]));
   const persistedEdges = list(edges);
   const temporaryNodes = [];
   const temporaryEdges = [];
@@ -155,7 +184,15 @@ export function buildPlanProjection(review, nodes, edges) {
         "supporting change",
       ));
     } else if (impact.level === "unresolved") {
-      temporaryNodes.push(cardFor(reviewId, impact, needsReviewId, "needs review"));
+      const numbers = list(impact.steps);
+      const raw = review && review.status === "error"
+        ? numbers.map((number) => stepText.get(number) || "").filter(Boolean).join(" ")
+        : "";
+      const display = raw ? {
+        title: "Plan step" + (numbers.length === 1 ? " " : "s ") + numbers.join(", "),
+        why: raw,
+      } : {};
+      temporaryNodes.push(cardFor(reviewId, impact, needsReviewId, "needs review", display));
     }
   }
 

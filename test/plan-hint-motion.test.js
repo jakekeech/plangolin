@@ -53,11 +53,13 @@ test("the browser consumes the impact projection instead of legacy deltas", () =
   assert.match(APP, /from "\.\/plan-projection\.js"/);
   assert.doesNotMatch(APP, /plan\.delta/);
   assert.doesNotMatch(APP, /\bplanKey\b/);
-  assert.match(APP, /buildPlanProjection\(plan, S\.nodes, S\.edges\)/);
+  assert.match(APP, /projectionForReview\(plan, S\.nodes, S\.edges, previousProjection\)/);
   assert.match(
     functionSource(APP, "currentLevelNodes"),
     /planViewNodes\(viewRoot, S\.nodes, planProjection\)/,
   );
+  assert.match(functionSource(APP, "syncPlanProjection"),
+    /projectionForReview\(plan, S\.nodes, S\.edges, previousProjection\)/);
 });
 
 test("temporary hierarchy reuses viewRoot navigation without resetting decisions", () => {
@@ -73,12 +75,18 @@ test("temporary cards are focusable plan controls with no ports", () => {
   assert.match(renderer, /applyTemporaryNodeAccessibility/);
   assert.match(renderer, /data-plan-toggle/);
   assert.match(renderer, /data-impact-key/);
+  assert.match(renderer, /planControlState\(plan\)\.keep/);
   assert.doesNotMatch(renderer, /class="port"/);
   assert.match(CSS, /\.node\.plan-card/);
   assert.match(CSS, /\.node\.plan-group/);
   assert.match(CSS, /\.node\.plan-removal/);
   assert.match(CSS, /\.node\.plan-responsibility/);
   assert.match(CSS, /\.wire\.plan-disconnection/);
+});
+
+test("failed reviews render Needs Review without exposing keep or cut decisions", () => {
+  assert.match(functionSource(APP, "renderNodes"), /planProjectionVisible\(plan\)/);
+  assert.match(functionSource(APP, "renderTemporaryNode"), /planControlState\(plan\)\.keep/);
 });
 
 test("the plan panel renders literal cited steps, files, and symbols", () => {

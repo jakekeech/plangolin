@@ -1,8 +1,9 @@
 import { generatedPositions, layeredPositions, proposalPositions } from "./graph-layout.js";
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import {
-  buildPlanProjection,
+  planProjectionVisible,
   planViewNodes,
+  projectionForReview,
   recursiveImpactCounts,
   setImpactDecision,
   temporaryChildren,
@@ -26,6 +27,7 @@ import {
 import {
   createPlanPollScheduler,
   createPlanRetryController,
+  planControlState,
   planRenderState,
   reconcilePlanCutKeys,
 } from "./plan-progress.js";
@@ -698,17 +700,8 @@ import { createRolledLoader } from "./rolled-loader.js";
   const hasViewChildren = (id) => isContainer(id) || temporaryChildren(planProjection, id).length > 0;
 
   function syncPlanProjection() {
-    const reviewable = plan && (plan.status === "ready" || plan.status === "partial");
     const previousProjection = planProjection;
-    const sameReviewInFlight = plan && (plan.status === "working" || plan.status === "error") &&
-      previousProjection.reviewId === plan.id;
-    const nextProjection = reviewable
-      ? buildPlanProjection(plan, S.nodes, S.edges)
-      : sameReviewInFlight
-        ? previousProjection
-        : { reviewId: "", nodes: [], edges: [], annotations: {
-            removals: [], responsibilities: [], disconnections: [],
-          } };
+    const nextProjection = projectionForReview(plan, S.nodes, S.edges, previousProjection);
     const navigation = normalizePlanNavigation({
       viewRoot,
       selectedId: planSelectedId,
@@ -1881,7 +1874,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     });
 
     ghostAt = new Map();
-    if (!sheetLoaded || !plan || (plan.status !== "ready" && plan.status !== "partial")) return;
+    if (!sheetLoaded || !planProjectionVisible(plan)) return;
     const temporary = level.filter((candidate) => !isPersistedNode(candidate));
     ghostAt = ghostPositions(temporary);
     temporary.forEach((candidate) => renderTemporaryNode(candidate, ghostAt.get(candidate.id)));
@@ -1909,7 +1902,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     el.style.top = position.y + "px";
     const k = iconFor(n.kind || "");
     const count = planImpactCounts.get(n.id) || 0;
-    const controls = n.impactKey
+    const controls = n.impactKey && planControlState(plan).keep
       ? '<span class="plan-card-controls" data-impact-key="' + esc(n.impactKey) + '">' +
           '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(n.impactKey) +
             '" data-plan-owner-id="' + esc(n.id) +
@@ -2795,7 +2788,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     const live = !!plan;
     wrap.hidden = !live;
     if (!live) { wrap.dataset.open = "false"; return; }
-    const needsReview = (plan.status === "ready" || plan.status === "partial")
+    const needsReview = planProjectionVisible(plan)
       ? [...new Set((plan.impacts || []).filter((impact) => impact.level === "unresolved")
           .flatMap((impact) => impact.steps || []))].length : 0;
     const total = (plan.steps || []).length;
