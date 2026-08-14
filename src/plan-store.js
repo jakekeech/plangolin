@@ -28,6 +28,7 @@ const WORKING_PHASES = new Set([
   "loading_system_map",
   "mapping_project",
   "grouping_components",
+  "naming_components",
   "naming_and_matching",
   "matching_plan",
   "arranging_review",

@@ -139,6 +139,21 @@ test("internal and supporting work are grouped by their target or Project Suppor
   assert.match(out, /from the plan: "Document the cache rollout\."/);
 });
 
+test("component-scoped support protects its target from DO NOT TOUCH", () => {
+  const support = IMPACTS.find((impact) => impact.key === "impact:5");
+  const out = buildBrief({
+    nodes: NODES,
+    steps: STEPS,
+    impacts: [support],
+    reach: [],
+    accepted: new Set([support.key]),
+  });
+
+  assert.match(out, /SUPPORTING WORK\n\s+API Server\n\s+Add API cache tests/);
+  assert.doesNotMatch(out.split("DO NOT TOUCH")[1] || "", /API Server/);
+  assert.match(out, /DO NOT TOUCH\n\s+Database, Schema, Documentation/);
+});
+
 test("accepted unresolved work directs the worker to confirm scope", () => {
   const out = brief();
 

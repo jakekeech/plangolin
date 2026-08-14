@@ -270,7 +270,7 @@ test("naming failure keeps fallback metadata instead of failing adoption", async
     provider: null, model: null,
   });
   assert.deepEqual(progress, [
-    { phase: "naming_and_matching", counts: { components: 2 } },
+    { phase: "naming_components", counts: { components: 2 } },
   ]);
 });
 
@@ -406,7 +406,7 @@ test("adopt ignores synchronous and rejected progress observer failures", async 
   });
 
   assert.deepEqual(phases, [
-    "mapping_project", "grouping_components", "naming_and_matching",
+    "mapping_project", "grouping_components", "naming_components",
   ]);
   assert.deepEqual(result, {
     moves: EXPECTED_MOVES,

@@ -165,6 +165,16 @@ function validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, dia
   return { ids, byImpact };
 }
 
+function unresolvedCandidate(candidate) {
+  return {
+    ...candidate,
+    level: "unresolved",
+    targetId: "",
+    size: "",
+    additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
+  };
+}
+
 function validateCandidates(rawImpacts, context) {
   const {
     additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics,
@@ -280,16 +290,39 @@ function validateCandidates(rawImpacts, context) {
         .includes(issue.code))) invalidImpact = true;
 
     if (invalidImpact) {
-      level = "unresolved";
-      return {
-        sourceIndex, level, targetId: "", title, why, size: "", steps,
-        ...evidence,
-        additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
-      };
+      return unresolvedCandidate({
+        sourceIndex, level, targetId, title, why, size, steps, ...evidence, ...operations,
+      });
     }
 
     return { sourceIndex, level, targetId, title, why, size, steps, ...evidence, ...operations };
   });
+}
+
+function revalidateCandidateReferences(candidates, existingIds, diagnostics) {
+  let validated = candidates;
+  for (;;) {
+    const reachableIds = new Set(existingIds);
+    for (const candidate of validated) {
+      if (candidate.level !== "system") continue;
+      for (const addition of candidate.additions) reachableIds.add(addition.id);
+    }
+
+    let changed = false;
+    validated = validated.map((candidate) => {
+      if (candidate.level === "unresolved") return candidate;
+      const orphanTarget = (candidate.level === "component" || candidate.level === "support") &&
+        candidate.targetId && !reachableIds.has(candidate.targetId);
+      const orphanConnections = candidate.connections.filter((connection) =>
+        !reachableIds.has(connection.from) || !reachableIds.has(connection.to));
+      if (!orphanTarget && !orphanConnections.length) return candidate;
+      diagnostics.invalidOperations += orphanConnections.length;
+      diagnostics.issues.push({ code: "orphan_reference", sourceIndex: candidate.sourceIndex });
+      changed = true;
+      return unresolvedCandidate(candidate);
+    });
+    if (!changed) return validated;
+  }
 }
 
 function resolveStepConflicts(candidates, diagnostics) {
@@ -404,10 +437,12 @@ export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
 
   const additions = validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, diagnostics);
   const knownIds = new Set([...existingIds, ...additions.ids]);
-  const candidates = validateCandidates(rawImpacts, {
+  const candidates = revalidateCandidateReferences(validateCandidates(rawImpacts, {
     additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics,
-  });
-  const owned = resolveStepConflicts(candidates, diagnostics);
+  }), existingIds, diagnostics);
+  const owned = revalidateCandidateReferences(
+    resolveStepConflicts(candidates, diagnostics), existingIds, diagnostics,
+  );
   const repaired = addMissingAsUnresolved(owned, steps, diagnostics);
   return assignTrustedKeys(repaired, diagnostics, steps);
 }

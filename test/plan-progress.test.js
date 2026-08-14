@@ -65,6 +65,7 @@ test("working phases describe real progress with bounded project counts", () => 
   const cases = [
     ["mapping_project", { files: 84 }, "Mapping your project — 84 files found"],
     ["grouping_components", {}, "Grouping those files into components"],
+    ["naming_components", { components: 8 }, "Naming 8 components"],
     ["naming_and_matching", { components: 8, steps: 12 },
       "Naming 8 components and matching 12 plan steps"],
     ["loading_system_map", {}, "Loading your system map"],

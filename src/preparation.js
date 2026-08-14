@@ -26,7 +26,8 @@ const TEMP_RE = new RegExp(
   `^\\.tmp-(result|progress|lock-update)-(\\d{12})-(${UUID}|manual)-[^.]+\\.json$`,
 );
 const ACTIVE_PHASES = new Set([
-  "starting", "working", "mapping_project", "grouping_components", "naming_and_matching",
+  "starting", "working", "mapping_project", "grouping_components", "naming_components",
+  "naming_and_matching",
 ]);
 const PROGRESS_PHASES = new Set([...ACTIVE_PHASES, "complete", "failed"]);
 const sleepFor = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -411,14 +412,15 @@ async function followLeaseCompletion(root, lease, options = {}) {
   const now = options.now || Date.now;
   const sleep = options.sleep || sleepFor;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
-  const timeoutMs = options.timeoutMs ?? LOCK_STALE_MS;
+  const timeoutMs = options.timeoutMs;
   const began = now();
   for (;;) {
     const current = await winningLease(root, options);
     if (!sameLease(current, lease)) return null;
     const record = await readCompletedLease(root, lease, options);
     if (record) return record;
-    if (!await leaseIsLive(root, lease, options) || now() - began >= timeoutMs) return null;
+    if (!await leaseIsLive(root, lease, options) ||
+        (Number.isFinite(timeoutMs) && now() - began >= timeoutMs)) return null;
     await sleep(pollMs);
   }
 }
@@ -488,7 +490,7 @@ export async function followPreparation(root, fingerprint, options = {}) {
   const now = options.now || Date.now;
   const sleep = options.sleep || sleepFor;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
-  const timeoutMs = options.timeoutMs ?? LOCK_STALE_MS;
+  const timeoutMs = options.timeoutMs;
   const began = now();
   let reportedRevision = 0;
   for (;;) {
@@ -501,7 +503,7 @@ export async function followPreparation(root, fingerprint, options = {}) {
       reportFollowProgress(options.onProgress, progress);
       reportedRevision = progress.revision;
     }
-    if (now() - began >= timeoutMs) return null;
+    if (Number.isFinite(timeoutMs) && now() - began >= timeoutMs) return null;
     await sleep(pollMs);
   }
 }

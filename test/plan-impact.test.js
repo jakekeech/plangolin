@@ -136,6 +136,50 @@ test("accepts a component target declared by a later addition", () => {
   ]);
 });
 
+test("orphan dependents become unresolved when their proposed component is invalidated", () => {
+  const result = validate([
+    impact({
+      level: "system", targetId: "", title: "Add limiter", steps: [1],
+      additions: [{
+        id: "limiter", name: "Limiter", kind: "Module",
+        intent: "Limits requests.", dir: "src/limit", files: [],
+      }],
+      connections: [{ from: "limiter", to: "ghost", label: "calls" }],
+    }),
+    impact({ targetId: "limiter", title: "Tune limiter", steps: [2] }),
+  ], { steps: STEPS.slice(0, 2) });
+
+  assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
+    { level: "unresolved", targetId: "", steps: [1] },
+    { level: "unresolved", targetId: "", steps: [2] },
+  ]);
+  assert.equal(result.coverage.claimed, 2);
+  assert.equal(result.coverage.total, 2);
+});
+
+test("orphan dependents become unresolved when their proposed component loses its steps", () => {
+  const result = validate([
+    impact({
+      level: "system", targetId: "", title: "Update API", steps: [1],
+      responsibilities: [{ id: "api", intent: "Serves limited requests.", why: "Adds control." }],
+    }),
+    impact({
+      level: "system", targetId: "", title: "Add limiter", steps: [1],
+      additions: [{
+        id: "limiter", name: "Limiter", kind: "Module",
+        intent: "Limits requests.", dir: "src/limit", files: [],
+      }],
+    }),
+    impact({ targetId: "limiter", title: "Tune limiter", steps: [2] }),
+  ], { steps: STEPS.slice(0, 2) });
+
+  assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
+    { level: "system", targetId: "", steps: [1] },
+    { level: "unresolved", targetId: "", steps: [2] },
+  ]);
+  assert.equal(result.coverage.claimed, 2);
+});
+
 test("keeps component-scoped and project-wide support", () => {
   const result = validate([
     impact({ level: "support", targetId: "api", title: "Test API", steps: [2], size: "" }),

@@ -218,7 +218,7 @@ export async function nameProject(
   { describe = describeGroups, onProgress } = {},
 ) {
   await reportProgress(onProgress, {
-    phase: "naming_and_matching",
+    phase: "naming_components",
     counts: { components: discovery.flatGroups.length },
   });
 

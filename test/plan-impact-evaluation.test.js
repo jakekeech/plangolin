@@ -429,12 +429,51 @@ test("separate effort URLs run against the ordinary service response contract", 
   ]);
   assert.ok(requestBodies.every((body) =>
     JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["installId", "prompt"])));
+  assert.ok(requestBodies.every((body) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.installId)));
   const output = JSON.parse(lines.join(""));
   assert.equal(output.decision, "pass");
   assert.deepEqual(output.evidence, {
     verifiedLiveModelCalls: 8,
     requiredLiveModelCalls: 8,
   });
+});
+
+test("evaluation-aware service mode sends an install id accepted by the service contract", async () => {
+  const requestBodies = [];
+  const lines = [];
+  await main({
+    env: {
+      PLANGOLIN_EVAL_LIVE: "1",
+      PLANGOLIN_EVAL_SERVICE_URL: "https://evaluation.example",
+      PLANGOLIN_EVAL_REPEATS: "2",
+    },
+    cases: [corpusCase()],
+    stdout: { write(chunk) { lines.push(String(chunk)); } },
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      requestBodies.push(body);
+      const targetId = body.prompt.includes("group:auth") ? "group:auth" : "auth";
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            parsed: { impacts: [
+              impact({ targetId }),
+              impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+            ] },
+            evaluation: { effort: body.evaluation.effort, evidence: "live-model" },
+          };
+        },
+      };
+    },
+  });
+
+  assert.ok(requestBodies.length > 0);
+  assert.ok(requestBodies.every((body) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.installId)));
+  assert.equal(JSON.parse(lines.join("")).decision, "pass");
 });
 
 test("ordinary effort URLs reject whitespace-only provider or model identity", async () => {

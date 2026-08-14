@@ -289,7 +289,7 @@ function preparationDoubles(overrides = {}) {
       return discovery;
     },
     name: async (_discovery, { onProgress }) => {
-      await onProgress({ phase: "naming_and_matching", counts: { components: 1 } });
+      await onProgress({ phase: "naming_components", counts: { components: 1 } });
       return described;
     },
     movesFrom: () => ({ moves: [{ t: "addNode", node: { id: "api" } }] }),
@@ -904,6 +904,51 @@ test("followPreparation returns a live matching worker's final atomic result", a
   assert.deepEqual(await following, await running);
 });
 
+test("followPreparation stops within one poll after an unrenewed lease becomes stale", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const fingerprint = "a".repeat(64);
+  await writeLeaseState(root, cacheRoot, { startedAt: 1_000, renewedAt: 1_000, progressAt: 1_000 });
+  let now = 1_000;
+
+  const result = await followPreparation(root, fingerprint, {
+    cacheRoot,
+    now: () => now,
+    processAlive: () => true,
+    pollMs: 1_000,
+    sleep: async () => { now += 1_000; },
+  });
+
+  assert.equal(result, null);
+  assert.ok(now <= 1_000 + LEASE_TTL_MS + 1_000);
+});
+
+test("followPreparation still honors an explicitly configured follower timeout", async (t) => {
+  const { root, cacheRoot } = await temporaryProject(t);
+  const fingerprint = "a".repeat(64);
+  const lease = await writeLeaseState(root, cacheRoot, {
+    startedAt: 1_000, renewedAt: 1_000, progressAt: 1_000,
+  });
+  let now = 1_000;
+  let sequence = 1;
+
+  const result = await followPreparation(root, fingerprint, {
+    cacheRoot,
+    now: () => now,
+    processAlive: () => true,
+    timeoutMs: 2_000,
+    pollMs: 1_000,
+    sleep: async () => {
+      now += 1_000;
+      sequence += 1;
+      await fs.mkdir(path.join(lease.paths.dir,
+        `heartbeat-${generationName(1)}-${lease.owner}-${generationName(sequence)}-${now}.beat`));
+    },
+  });
+
+  assert.equal(result, null);
+  assert.equal(now, 3_000);
+});
+
 test("followPreparation reports bounded live progress while retaining exact result fencing", async (t) => {
   const { root, cacheRoot } = await temporaryProject(t);
   const doubles = preparationDoubles();
@@ -917,7 +962,7 @@ test("followPreparation reports bounded live progress while retaining exact resu
     ...doubles,
     name: async (_discovery, { onProgress }) => {
       await onProgress({
-        phase: "naming_and_matching",
+        phase: "naming_components",
         counts: { components: 1, privatePath: "/private/project/src/api.js" },
       });
       nameStarted.resolve();
@@ -941,7 +986,7 @@ test("followPreparation reports bounded live progress while retaining exact resu
   try {
     await sleepEntered.promise;
     assert.deepEqual(progress, [{
-      phase: "naming_and_matching",
+      phase: "naming_components",
       revision: 3,
       elapsed: progress[0]?.elapsed,
       counts: { components: 1 },
@@ -969,7 +1014,7 @@ test("followPreparation completion never waits for a progress observer to settle
     ws: { root },
     ...doubles,
     name: async (_discovery, { onProgress }) => {
-      await onProgress({ phase: "naming_and_matching", counts: { components: 1 } });
+      await onProgress({ phase: "naming_components", counts: { components: 1 } });
       nameStarted.resolve();
       await finishName.promise;
       return doubles.described;

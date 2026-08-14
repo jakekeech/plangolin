@@ -9,6 +9,7 @@ import {
   temporaryChildren,
 } from "../app/plan-projection.js";
 import * as planProjectionModule from "../app/plan-projection.js";
+import { validateImpacts } from "../src/plan-impact.js";
 
 const NODES = [
   { id: "backend", name: "Backend", kind: "System", intent: "Runs the product.", x: 20, y: 30 },
@@ -95,6 +96,31 @@ test("system additions and proposed connections project at the root", () => {
     planViewNodes(null, NODES, projection).map((node) => node.id),
     ["backend", "database", addition.id],
   );
+});
+
+test("validated projections never point at an invalidated proposed component", () => {
+  const steps = [
+    { n: 1, text: "Add a limiter and connect it to a missing component." },
+    { n: 2, text: "Implement the limiter internals." },
+  ];
+  const validated = validateImpacts({ impacts: [
+    impact({
+      level: "system", targetId: "", title: "Add limiter", steps: [1],
+      additions: [{
+        id: "limiter", name: "Limiter", kind: "Module", intent: "Limits requests.", dir: "", files: [],
+      }],
+      connections: [{ from: "limiter", to: "ghost", label: "calls" }],
+    }),
+    impact({ key: undefined, targetId: "limiter", title: "Implement limiter", steps: [2] }),
+  ] }, { nodes: NODES, edges: EDGES, steps });
+  const projection = buildPlanProjection({
+    id: "review-reachable", status: "partial", steps, impacts: validated.impacts,
+  }, NODES, EDGES);
+  const reachable = new Set([...NODES.map((node) => node.id), ...projection.nodes.map((node) => node.id)]);
+
+  assert.ok(projection.nodes.every((node) => node.parent === null || reachable.has(node.parent)));
+  assert.ok(projection.edges.every((edge) => reachable.has(edge.from) && reachable.has(edge.to)));
+  assert.deepEqual(validated.impacts.flatMap((entry) => entry.steps).sort((a, b) => a - b), [1, 2]);
 });
 
 test("removal, responsibility, and disconnection operations annotate persisted items", () => {

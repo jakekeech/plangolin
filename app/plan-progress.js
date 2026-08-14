@@ -37,6 +37,8 @@ export function planProgressCopy(review) {
       return "Mapping your project — " + plural(files, "file") + " found";
     case "grouping_components":
       return "Grouping those files into components";
+    case "naming_components":
+      return "Naming " + plural(components, "component");
     case "naming_and_matching":
       return "Naming " + plural(components, "component") + " and matching " +
         plural(steps, "plan step");

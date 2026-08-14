@@ -137,7 +137,9 @@ export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accept
   const involved = new Set();
   for (const impact of kept) {
     if (impact.level === "system" && impact.targetId) involved.add(impact.targetId);
-    if (impact.level === "component" && impact.targetId) involved.add(impact.targetId);
+    if ((impact.level === "component" || impact.level === "support") && impact.targetId) {
+      involved.add(impact.targetId);
+    }
     for (const addition of list(impact.additions)) involved.add(addition.id);
     for (const removal of list(impact.removals)) involved.add(removal.id);
     for (const responsibility of list(impact.responsibilities)) involved.add(responsibility.id);

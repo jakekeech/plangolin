@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   COLD_IMPACT_CONCURRENCY,
   MAX_BROWSER_COUNT,
@@ -7,6 +10,12 @@ import {
   createPlanStore,
 } from "../src/plan-store.js";
 import { emptyDoc, load as loadDoc, save as saveDoc } from "../src/schema.js";
+import {
+  followPreparation as followPreparedLease,
+  preparationPaths,
+  preparationStartup as inspectPreparationStartup,
+  readPreparation as readPreparedLease,
+} from "../src/preparation.js";
 
 const PLAN = "1. Add a limiter\n2. Wire it up\n";
 const STEPS = [
@@ -172,7 +181,7 @@ test("unprepared serial review reports every honest phase", async () => {
       return discovery;
     },
     nameProject: async (_discovery, { onProgress }) => {
-      await onProgress({ phase: "naming_and_matching", counts: { components: 1 } });
+      await onProgress({ phase: "naming_components", counts: { components: 1 } });
       return described;
     },
     movesFromDiscovery: () => ({ moves, idFor: new Map([["group:server", "server"]]) }),
@@ -183,7 +192,7 @@ test("unprepared serial review reports every honest phase", async () => {
 
   assert.deepEqual(phases(states), [
     "loading_system_map", "mapping_project", "grouping_components",
-    "naming_and_matching", "matching_plan", "arranging_review",
+    "naming_components", "matching_plan", "arranging_review",
   ]);
   assertMonotonicRevisions(states);
   assert.deepEqual(store.forBrowser().counts, { files: 2, links: 1, components: 2, steps: 2 });
@@ -632,7 +641,7 @@ test("a matching live preparation is followed with progress and no duplicate ado
       assert.equal(expected, fingerprint);
       await onProgress({ phase: "mapping_project", revision: 1, elapsed: 10, counts: { files: 2, links: 0 } });
       await onProgress({ phase: "grouping_components", revision: 2, elapsed: 20, counts: { components: 2 } });
-      await onProgress({ phase: "naming_and_matching", revision: 3, elapsed: 30, counts: { components: 2 } });
+      await onProgress({ phase: "naming_components", revision: 3, elapsed: 30, counts: { components: 2 } });
       return { moves, dropped: [], provider: "prep", model: "prep" };
     },
     discoverProject: async () => { discoveries++; throw new Error("must follow live preparation"); },
@@ -647,15 +656,78 @@ test("a matching live preparation is followed with progress and no duplicate ado
   assert.equal(adoptions, 0);
   assert.deepEqual(phases(states), [
     "loading_system_map", "mapping_project", "grouping_components",
-    "naming_and_matching", "matching_plan", "arranging_review",
+    "naming_components", "matching_plan", "arranging_review",
   ]);
   assert.equal(states.find((state) => state.phase === "mapping_project").elapsedMs, 10);
   assert.equal(states.find((state) => state.phase === "grouping_components").elapsedMs, 20);
-  assert.equal(states.find((state) => state.phase === "naming_and_matching").elapsedMs, 30);
+  assert.equal(states.find((state) => state.phase === "naming_components").elapsedMs, 30);
   for (let index = 1; index < states.length; index++) {
     assert.ok(states[index].elapsedMs >= states[index - 1].elapsedMs);
   }
   assertMonotonicRevisions(states);
+  assert.deepEqual((await store.takeScan()).moves, moves);
+});
+
+test("a live preparation past the lease TTL hands off without a duplicate cold adoption", async (t) => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "plangolin-plan-follow-"));
+  t.after(() => fs.rm(temp, { recursive: true, force: true }));
+  const root = path.join(temp, "project");
+  const cacheRoot = path.join(temp, "cache");
+  await fs.mkdir(root);
+  const paths = preparationPaths(root, { cacheRoot });
+  await fs.mkdir(paths.dir, { recursive: true });
+  const owner = "11111111-1111-4111-8111-111111111111";
+  const generation = "000000000001";
+  const fingerprint = "d".repeat(64);
+  let now = 1_000;
+  let heartbeatSequence = 1;
+  await fs.mkdir(path.join(paths.dir, `lease-${generation}.claim`));
+  await fs.mkdir(path.join(paths.dir, `lease-${generation}.claim`, `${owner}-${process.pid}-${now}.owner`));
+  await fs.mkdir(path.join(paths.dir, `heartbeat-${generation}-${owner}-000000000001-${now}.beat`));
+  await fs.writeFile(path.join(paths.dir, `progress-${generation}-${owner}.json`), JSON.stringify({
+    owner, generation: 1, phase: "starting", revision: 1, elapsed: 0, updatedAt: now, counts: {},
+  }));
+
+  const moves = NODES.map((node) => ({ t: "addNode", node }));
+  const record = {
+    version: 1, rootHash: paths.rootHash, fingerprint, createdAt: 17_000,
+    moves, dropped: [], provider: "prep", model: "prep",
+  };
+  const sleep = async () => {
+    now += 1_000;
+    heartbeatSequence += 1;
+    await fs.mkdir(path.join(paths.dir,
+      `heartbeat-${generation}-${owner}-${String(heartbeatSequence).padStart(12, "0")}-${now}.beat`));
+    if (now === 17_000) {
+      await fs.writeFile(path.join(paths.dir, `result-${generation}-${owner}.json`), JSON.stringify(record));
+      await fs.mkdir(path.join(paths.dir, `complete-${generation}-${owner}.done`));
+    }
+  };
+  const leaseOptions = { cacheRoot, now: () => now, processAlive: () => true };
+  let discoveries = 0;
+  let namings = 0;
+  const store = createPlanStore({
+    buildGraph: async () => ({ files: ["src/server.js"], links: [], capped: false }),
+    fingerprintGraph: () => fingerprint,
+    readPreparation: (workspace, expected) =>
+      readPreparedLease(workspace, expected, leaseOptions),
+    preparationStartup: (workspace) => inspectPreparationStartup(workspace, leaseOptions),
+    followPreparation: (workspace, expected, { onProgress }) => followPreparedLease(workspace, expected, {
+      ...leaseOptions, pollMs: 1_000, sleep, onProgress,
+    }),
+    discoverProject: async () => { discoveries += 1; throw new Error("must keep following the live lease"); },
+    nameProject: async () => { namings += 1; throw new Error("must not duplicate naming"); },
+    impact: async () => readyResult(),
+  });
+  const ws = memWs();
+  ws.root = root;
+  store.open({ plan: PLAN });
+  await store.fill(ws);
+
+  assert.ok(now > 1_000 + 15_000, "the handoff completes after the old absolute follower timeout");
+  assert.equal(discoveries, 0);
+  assert.equal(namings, 0);
+  assert.equal(store.current().status, "ready");
   assert.deepEqual((await store.takeScan()).moves, moves);
 });
 

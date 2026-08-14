@@ -9,6 +9,8 @@ import {
   validateImpacts,
 } from "../src/plan-impact.js";
 
+export const EVALUATION_INSTALL_ID = "00000000-0000-4000-8000-000000000001";
+
 const CASES_URL = new URL("../evaluation/plan-impact/cases.json", import.meta.url);
 const OPERATION_NAMES = [
   "additions", "removals", "responsibilities", "connections", "disconnections",
@@ -398,7 +400,7 @@ function createLiveCall({ env, fetchImpl }) {
     return async ({ effort, prompt }) => {
       const data = await requestImpact({
         endpoint: byEffort[effort],
-        body: { installId: "plan-impact-evaluation", prompt },
+        body: { installId: EVALUATION_INSTALL_ID, prompt },
         fetchImpl,
       });
       if (typeof data.provider !== "string" || data.provider.trim().length === 0 ||
@@ -423,7 +425,7 @@ function createLiveCall({ env, fetchImpl }) {
     const data = await requestImpact({
       endpoint,
       body: {
-        installId: "plan-impact-evaluation",
+        installId: EVALUATION_INSTALL_ID,
         prompt,
         evaluation: { caseId, contextKind, effort, scenario },
       },
