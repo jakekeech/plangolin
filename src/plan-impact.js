@@ -110,6 +110,7 @@ function literalInSteps(value, stepNumbers, stepText) {
 
 function validateEvidence(raw, stepNumbers, stepText, diagnostics) {
   const files = [];
+  const ownerFiles = [];
   for (const value of list(raw.files)) {
     const path = safePath(value);
     if (!path) {
@@ -120,7 +121,10 @@ function validateEvidence(raw, stepNumbers, stepText, diagnostics) {
       diagnostics.issues.push({ code: "unsupported_evidence", field: "files" });
       continue;
     }
-    if (files.length < MAX_EVIDENCE && !files.includes(path)) files.push(path);
+    if (!ownerFiles.includes(path)) {
+      ownerFiles.push(path);
+      if (files.length < MAX_EVIDENCE) files.push(path);
+    }
   }
 
   const symbols = [];
@@ -132,7 +136,7 @@ function validateEvidence(raw, stepNumbers, stepText, diagnostics) {
     }
     if (symbols.length < MAX_EVIDENCE && !symbols.includes(symbol)) symbols.push(symbol);
   }
-  return { files, symbols };
+  return { files, ownerFiles, symbols };
 }
 
 function validateSteps(values, validSteps, diagnostics, sourceIndex) {
@@ -211,11 +215,11 @@ function validateCandidates(rawImpacts, context) {
   return rawImpacts.map((rawValue, sourceIndex) => {
     const raw = isObject(rawValue) ? rawValue : {};
     const steps = validateSteps(raw.steps, validSteps, diagnostics, sourceIndex);
-    const evidence = validateEvidence(raw, steps, stepText, diagnostics);
+    const { ownerFiles, ...evidence } = validateEvidence(raw, steps, stepText, diagnostics);
     const originalLevel = raw.level;
     const targetIsString = typeof raw.targetId === "string";
     const rawTargetId = targetIsString ? raw.targetId : "";
-    const ownerId = targetIsString ? deepestSingleOwner(nodes, evidence.files) : "";
+    const ownerId = targetIsString ? deepestSingleOwner(nodes, ownerFiles) : "";
     let level = originalLevel;
     let targetId = rawTargetId;
     let invalidImpact = false;

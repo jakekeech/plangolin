@@ -141,6 +141,22 @@ test("does not repair a blank target from an unsupported owned file", () => {
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "unsupported_evidence"));
 });
 
+test("uses every supported file to disprove ownership beyond the display cap", () => {
+  const ownedFiles = [
+    "src/api-1.js", "src/api-2.js", "src/api-3.js",
+    "src/api-4.js", "src/api-5.js", "src/api-6.js",
+  ];
+  const files = [...ownedFiles, "src/outside.js"];
+  const result = validate([impact({ targetId: "", files, steps: [2] })], {
+    nodes: [{ ...NODES[0], anchor: { paths: ownedFiles } }],
+    steps: [{ n: 2, text: `Update ${files.join(", ")}.` }],
+  });
+
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 1, complete: false });
+});
+
 test("does not invent placement when evidence has multiple or no owners", () => {
   const withoutOwner = validate([impact({ targetId: "", files: [], steps: [2] })], {
     steps: [API_FILE_STEP],
