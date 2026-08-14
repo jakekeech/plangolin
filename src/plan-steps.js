@@ -32,12 +32,25 @@ function strayFence(lines) {
 
 function splitNumberedSections(markdown) {
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  if (!lines.some((line) => NUMBERED_HEADING.test(line))) return null;
-
   const sections = [];
+  const stray = strayFence(lines);
   let current = null;
+  let fence = null;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const f = i === stray ? null : line.match(FENCE);
+    if (f) {
+      if (fence && f[1][0] === fence[0]) fence = null;
+      else if (!fence) fence = f[1];
+      if (current) current.lines.push(line.trim());
+      continue;
+    }
+    if (fence) {
+      if (current) current.lines.push(line.trim());
+      continue;
+    }
+
     const numbered = line.match(NUMBERED_HEADING);
     const heading = line.match(HEADING);
     if (numbered) {
@@ -54,6 +67,7 @@ function splitNumberedSections(markdown) {
   }
 
   if (current) sections.push(current);
+  if (!sections.length) return null;
   return sections
     .map(({ lines }) => lines.join(" ").replace(/\s+/g, " ").trim())
     .filter(Boolean)

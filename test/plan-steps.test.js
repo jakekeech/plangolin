@@ -70,6 +70,13 @@ test("a fenced code block never starts a step", () => {
   assert.equal(steps[1].text, "Then commit.");
 });
 
+test("a numbered heading inside a fenced code block does not start section mode", () => {
+  const steps = splitSteps("Add this:\n\n```md\n## 1. not a decision\n```\n\nThen commit.\n");
+  assert.equal(steps.length, 2);
+  assert.match(steps[0].text, /not a decision/);
+  assert.equal(steps[1].text, "Then commit.");
+});
+
 test("blank-line-separated paragraphs are separate steps", () => {
   const steps = splitSteps("First para.\nStill first.\n\nSecond para.\n");
   assert.equal(steps.length, 2);
