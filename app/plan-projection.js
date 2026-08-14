@@ -46,6 +46,7 @@ const emptyProjection = () => ({
 
 export function reviewMapEdges(edges, review) {
   const saved = list(edges);
+  if (!completeVisibleReview(review)) return saved;
   const present = new Set(saved.map((edge) => edge.from + "\0" + edge.to));
   const repaired = list(review && review.mapEdges)
     .filter((edge) => edge && !present.has(edge.from + "\0" + edge.to))

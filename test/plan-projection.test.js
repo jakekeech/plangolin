@@ -417,15 +417,23 @@ test("one impact key keeps or cuts every structural representation atomically", 
   assert.equal(cut.has("impact:structural"), true, "the prior decision set remains immutable");
 });
 
-test("reviewMapEdges adds transient repaired edges without duplicating saved ones", () => {
+test("reviewMapEdges exposes repaired edges only for a complete ready review", () => {
   const saved = [{ id: "a__b", from: "a", to: "b", label: "saved" }];
-  const sourceReview = { mapEdges: [
-    { id: "scan:a>b", from: "a", to: "b", label: "duplicate" },
-    {
-      id: "scan:b>c", from: "b", to: "c", label: "calls API",
-      operations: [{ name: "/jobs/*", sends: "", returns: "" }],
-    },
-  ] };
+  const sourceReview = {
+    ...review("review-map-edges", [
+      impact({ key: "impact:1", steps: [1] }),
+      impact({ key: "impact:2", level: "system", steps: [2] }),
+      impact({ key: "impact:3", steps: [3] }),
+      impact({ key: "impact:4", steps: [4] }),
+    ]),
+    mapEdges: [
+      { id: "scan:a>b", from: "a", to: "b", label: "duplicate" },
+      {
+        id: "scan:b>c", from: "b", to: "c", label: "calls API",
+        operations: [{ name: "/jobs/*", sends: "", returns: "" }],
+      },
+    ],
+  };
 
   assert.deepEqual(reviewMapEdges(saved, sourceReview), [
     saved[0],
@@ -435,6 +443,11 @@ test("reviewMapEdges adds transient repaired edges without duplicating saved one
       reviewContext: true,
     },
   ]);
+  assert.deepEqual(reviewMapEdges(saved, { ...sourceReview, status: "error" }), saved);
+  assert.deepEqual(reviewMapEdges(saved, {
+    ...sourceReview,
+    impacts: [impact({ steps: [1] })],
+  }), saved);
 });
 
 test("review decisions contain only graphical and nested component changes", () => {
