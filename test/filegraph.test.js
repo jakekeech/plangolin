@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFileGraph } from "../src/filegraph.js";
+import { buildFileGraph, fingerprintGraph } from "../src/filegraph.js";
 
 /** Minimal in-memory Workspace: the same methods src/workspace.js has. */
 function fakeWs(tree) {
@@ -66,4 +66,44 @@ test("reads go.mod so Go imports resolve", async () => {
   });
   const g = await buildFileGraph(ws);
   assert.deepEqual(g.links, [{ from: "main.go", to: "db/conn.go", kind: "import", names: [] }]);
+});
+
+test("fingerprints normalized graph facts independently of input order", () => {
+  const one = fingerprintGraph({
+    files: ["src/z.js", "src/a.js"],
+    links: [
+      { from: "src/z.js", to: "src/a.js", kind: "import", names: ["write", "read"] },
+      { from: "src/a.js", to: "src/z.js", kind: "http", names: [] },
+    ],
+    capped: false,
+  });
+  const reordered = fingerprintGraph({
+    capped: false,
+    links: [
+      { names: [], kind: "http", to: "src/z.js", from: "src/a.js" },
+      { names: ["read", "write"], kind: "import", to: "src/a.js", from: "src/z.js" },
+    ],
+    files: ["src/a.js", "src/z.js"],
+  });
+
+  assert.match(one, /^[0-9a-f]{64}$/);
+  assert.equal(reordered, one);
+});
+
+test("fingerprints change when a file, link, or imported name changes", () => {
+  const base = {
+    files: ["src/a.js", "src/b.js"],
+    links: [{ from: "src/a.js", to: "src/b.js", kind: "import", names: ["read"] }],
+    capped: false,
+  };
+
+  assert.notEqual(fingerprintGraph({ ...base, files: [...base.files, "src/c.js"] }), fingerprintGraph(base));
+  assert.notEqual(fingerprintGraph({
+    ...base,
+    links: [{ ...base.links[0], to: "src/a.js" }],
+  }), fingerprintGraph(base));
+  assert.notEqual(fingerprintGraph({
+    ...base,
+    links: [{ ...base.links[0], names: ["write"] }],
+  }), fingerprintGraph(base));
 });

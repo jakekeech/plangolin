@@ -36,7 +36,12 @@ export function announce(url) {
   }
 }
 
-export async function runReview(root, planText, { open = announce, timeout = TEN_MINUTES } = {}) {
+export async function runReview(root, planText, {
+  open = announce,
+  timeout = TEN_MINUTES,
+  plans = createPlanStore(),
+  port = Number(process.env.PLANGOLIN_REVIEW_PORT || 4300),
+} = {}) {
   const plan = String(planText || "").trim();
   if (!plan) {
     note("plangolin: that plan file is empty — nothing to review.");
@@ -45,7 +50,6 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
 
   loadEnv(root);
   const ws = nodeWorkspace(root);
-  const plans = createPlanStore();
   const server = createServer(ws, plans);
 
   /* A known port, not an ephemeral one.
@@ -55,7 +59,7 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
      port has to be guessable in advance: the skill tells the reader where to
      look before it starts waiting. Walks upward if something already holds it,
      the same way `plangolin` itself does. */
-  const wanted = Number(process.env.PLANGOLIN_REVIEW_PORT || 4300);
+  const wanted = port;
   await new Promise((done, fail) => {
     let attempts = 12;
     const tryPort = (port) => {
@@ -75,12 +79,12 @@ export async function runReview(root, planText, { open = announce, timeout = TEN
   note("  Review this plan at:");
   note(`      ${url}`);
   note("");
-  note("  Reading it against your sheet… the page fills in on its own.");
+  note("  Preparing the plan against your system map. The page fills in on its own.");
   note("  This command waits here until you press Approve or Skip.");
   note("");
   open(url);
 
-  // Kicked off, not awaited: the browser polls for the delta and shows what it
+  // Kicked off, not awaited: the browser polls for impacts and shows what it
   // has meanwhile, so the wait below is the user's, not the model's.
   plans.fill(ws);
 

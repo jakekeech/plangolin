@@ -21,6 +21,15 @@ import { describeGroups } from "./describe.js";
 const MAX_EXCERPT_FILES = 4;
 const MAX_EXCERPT_CHARS = 1400;
 
+async function reportProgress(onProgress, event) {
+  if (!onProgress) return;
+  try {
+    await onProgress(event);
+  } catch {
+    // Progress is diagnostic metadata, never control flow for adoption.
+  }
+}
+
 /** Every group, flattened, each carrying its own files and those of its
     descendants — a container's dependencies are its contents'. */
 function flatten(groups) {
@@ -30,7 +39,14 @@ function flatten(groups) {
       const all = [...g.files];
       const collect = (kids) => kids.forEach((k) => { all.push(...k.files); collect(k.children); });
       collect(g.children);
-      out.push({ id: g.id, parent, files: g.files, allFiles: all, children: g.children });
+      out.push({
+        id: g.id,
+        parent,
+        files: g.files,
+        allFiles: all,
+        children: g.children,
+        rationale: g.why || "",
+      });
       walk(g.children, g.id);
     }
   };
@@ -133,12 +149,30 @@ export async function survey(ws) {
   return { files: graph.files.length, links: graph.links.length, blocks, capped: graph.capped };
 }
 
-export async function adopt(ws) {
-  const graph = await buildFileGraph(ws);
+export async function discoverProject(ws, { graph: injectedGraph, onProgress } = {}) {
+  const graph = injectedGraph === undefined ? await buildFileGraph(ws) : injectedGraph;
+  await reportProgress(onProgress, {
+    phase: "mapping_project",
+    counts: { files: graph.files.length, links: graph.links.length },
+  });
+
   const dropped = [];
   if (graph.capped) dropped.push("the project is larger than the scan cap; some files were not read");
   if (!graph.files.length) {
-    return { moves: [], dropped: ["no source files found"], provider: null, model: null };
+    const groups = [];
+    const flatGroups = [];
+    await reportProgress(onProgress, {
+      phase: "grouping_components",
+      counts: { components: 0 },
+    });
+    return {
+      graph,
+      groups,
+      flatGroups,
+      dependencies: new Map(),
+      excerpts: new Map(),
+      dropped: ["no source files found"],
+    };
   }
 
   // Clustering first, always. It is the hint the model is given, and it is
@@ -165,27 +199,51 @@ export async function adopt(ws) {
   // exists, and the import graph answers it.
   const groups = fold(semantic.groups || structural, graph.links);
 
-  const flat = flatten(groups);
-  const deps = groupDeps(groups, graph.links);
-  for (const g of flat) {
+  const flatGroups = flatten(groups);
+  const dependencies = groupDeps(groups, graph.links);
+  for (const g of flatGroups) {
     for (const file of g.files.slice(0, MAX_EXCERPT_FILES)) await readInto(file);
   }
 
+  await reportProgress(onProgress, {
+    phase: "grouping_components",
+    counts: { components: flatGroups.length },
+  });
+
+  return { graph, groups, flatGroups, dependencies, excerpts, dropped };
+}
+
+export async function nameProject(
+  discovery,
+  { describe = describeGroups, onProgress } = {},
+) {
+  await reportProgress(onProgress, {
+    phase: "naming_components",
+    counts: { components: discovery.flatGroups.length },
+  });
+
   let described = { blocks: [], labels: new Map(), dropped: [], provider: null, model: null };
   try {
-    described = await describeGroups(groups, deps, excerpts);
+    described = await describe(
+      discovery.groups,
+      discovery.dependencies,
+      discovery.excerpts,
+    );
   } catch (err) {
     // A dead model call must never mean a dead scan.
-    dropped.push(`naming failed, using file names instead: ${err.message}`);
+    described.dropped.push(`naming failed, using file names instead: ${err.message}`);
   }
-  dropped.push(...described.dropped);
 
+  return described;
+}
+
+export function movesFromDiscovery(discovery, described) {
   const byGroup = new Map(described.blocks.map((b) => [b.groupId, b]));
   const usedIds = new Set(described.blocks.map((b) => b.id));
   const idFor = new Map();
   const moves = [];
 
-  for (const g of flat) {
+  for (const g of discovery.flatGroups) {
     const block = byGroup.get(g.id);
     const id = block ? block.id : slugFor(g.allFiles, usedIds);
     if (!block) usedIds.add(id);
@@ -203,7 +261,7 @@ export async function adopt(ws) {
     moves.push({ t: "addNode", node });
   }
 
-  for (const edge of rollUpEdges(groups, graph.links)) {
+  for (const edge of rollUpEdges(discovery.groups, discovery.graph.links)) {
     const from = idFor.get(edge.from);
     const to = idFor.get(edge.to);
     if (!from || !to || from === to) continue;
@@ -224,5 +282,40 @@ export async function adopt(ws) {
     });
   }
 
-  return { moves, dropped, provider: described.provider, model: described.model };
+  return { moves, idFor };
+}
+
+export function provisionalImpactContext(discovery) {
+  const groups = discovery.flatGroups.map((group) => ({
+    ref: group.id,
+    parent: group.parent,
+    files: [...group.files],
+    rationale: group.rationale,
+    dependencies: [...(discovery.dependencies.get(group.id) || [])],
+  }));
+  const edges = [];
+  for (const group of groups) {
+    for (const dependency of group.dependencies) {
+      edges.push({ from: group.ref, to: dependency });
+    }
+  }
+
+  return { nodes: [], edges, groups };
+}
+
+export async function adopt(ws, options = {}) {
+  const { graph, describe, onProgress } = options;
+  const discovery = await discoverProject(ws, { graph, onProgress });
+  if (!discovery.graph.files.length) {
+    return { moves: [], dropped: discovery.dropped, provider: null, model: null };
+  }
+
+  const described = await nameProject(discovery, { describe, onProgress });
+  const { moves } = movesFromDiscovery(discovery, described);
+  return {
+    moves,
+    dropped: [...discovery.dropped, ...described.dropped],
+    provider: described.provider,
+    model: described.model,
+  };
 }

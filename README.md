@@ -74,15 +74,19 @@ setup: no separate npm install, API key, account, or build step.
   <em>A plan to add rate limiting to Express, drawn against Express's own code.</em>
 </p>
 
-Implementation details stay visible without competing for the same attention.
-At the end, plangolin counts the plan steps that change nothing about the shape
-of the system—the part of a long plan you are entitled to skim.
+Structural changes stay at the system level. Internal work appears inside the
+most specific affected component, and tests, documentation, rollout, and other
+supporting work appear beside the closest relevant component. If plangolin
+cannot place a step safely, it remains visible under **Needs Review** rather
+than disappearing into a no-change result.
 
 ## What you are reviewing
 
 **Solid blocks** are parts of the system that already exist. **Dashed blocks
 and lines** are what the plan proposes to add. A travelling dash shows which
-way a proposed connection runs.
+way a proposed connection runs. A planned-change badge on a component means
+there is internal or supporting work inside it; double-click the component to
+open that nested review.
 
 The current proposal is lit; everything else dims. It dims rather than
 disappearing because the rest of the system is what makes the proposed change
@@ -201,8 +205,9 @@ allowed to corrupt the sheet.
 
 Worth knowing before you rely on it:
 
-- **It reviews shape, not correctness.** It can tell you a plan adds a block
-  and wires it to your database. It cannot tell you the plan will work.
+- **It reviews impact, not correctness.** It can show that a plan adds a block,
+  wires it to your database, or changes work inside an existing component. It
+  cannot tell you the implementation will work.
 - **The mapping from plan steps to blocks is model-produced**, so a step can
   land on the wrong block or on none. Every proposal carries the plan's own
   wording under **▸ what the plan said**, which is there so you can check it
@@ -231,7 +236,7 @@ with the plan-review workflow for attention:
 src/cli.js             plangolin, and plangolin review <file>
 src/review-command.js  starts a review and waits for the answer
 src/plan-steps.js      cuts a plan into numbered steps
-src/plan-delta.js      maps those steps onto the shape of the system
+src/plan-impact.js     validates and places every step against the system
 src/plan-brief.js      turns review decisions into agent instructions
 src/plan-store.js      one live review and everything that happens to it
 src/filegraph.js       every reference in the project

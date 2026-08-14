@@ -9,7 +9,30 @@ import { promises as fsp } from "node:fs";
 const root = process.cwd();
 const argv = process.argv.slice(2);
 
-/* Dispatched before anything is loaded or bound. `review` owns its own server
+/* Dispatched before anything is loaded or bound. These commands own their
+   process lifetime and must not inherit the interactive server below. */
+if (argv[0] === "prepare") {
+  const { runPrepareCommand } = await import("./prepare-command.js");
+  const { code } = await runPrepareCommand(root);
+  if (code === 0) {
+    console.log("Preparing this project's system map in the background.");
+  } else {
+    console.error("plangolin: preparation could not start.");
+  }
+  process.exit(code);
+}
+
+if (argv[0] === "__prepare-worker") {
+  const { runPrepareWorker } = await import("./prepare-command.js");
+  try {
+    await runPrepareWorker(argv[1]);
+    process.exit(0);
+  } catch {
+    process.exit(1);
+  }
+}
+
+/* `review` owns its own server
    and its own lifetime; it must not inherit one started for a different
    purpose, and it must not leave one behind. */
 if (argv[0] === "review") {

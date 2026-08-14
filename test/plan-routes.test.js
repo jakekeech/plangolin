@@ -20,6 +20,18 @@ const SHEET = {
   edges: [], notes: [], types: {}, dismissed: [],
 };
 
+const readyImpact = (steps) => ({
+  impacts: [{
+    key: "impact:1", level: "support", targetId: "", title: "Build the plan",
+    why: "Carries out the requested work.", size: "small", steps: steps.map((step) => step.n),
+    files: [], symbols: [], additions: [], removals: [], responsibilities: [],
+    connections: [], disconnections: [],
+  }],
+  diagnostics: { invalidOperations: 0, issues: [] },
+  coverage: { claimed: steps.length, total: steps.length },
+  provider: "test", model: "test", outcome: "ready",
+});
+
 async function listen(plans) {
   const server = createServer(fakeWs(SHEET), plans);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -30,6 +42,15 @@ const post = (base, path, body) =>
   fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
     .then((r) => r.json());
 
+const postResponse = async (base, path, body) => {
+  const response = await fetch(base + path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+};
+
 test("the browser can read the live review", async () => {
   const plans = createPlanStore();
   plans.open({ plan: "1. Add a limiter\n" });
@@ -37,7 +58,7 @@ test("the browser can read the live review", async () => {
   try {
     const { review } = await fetch(s.base + "/api/plan").then((r) => r.json());
     assert.equal(review.steps.length, 1);
-    assert.equal(review.status, "thinking");
+    assert.equal(review.status, "working");
   } finally { await s.close(); }
 });
 
@@ -47,11 +68,102 @@ test("the route ships only what the panel reads, not the whole review", async ()
   const s = await listen(plans);
   try {
     const { review } = await fetch(s.base + "/api/plan").then((r) => r.json());
-    assert.deepEqual(Object.keys(review).sort(), ["delta", "id", "note", "reach", "status", "steps"]);
+    assert.deepEqual(Object.keys(review).sort(), [
+      "counts", "elapsedMs", "id", "impacts", "note", "phase", "reach",
+      "revision", "status", "steps",
+    ]);
     assert.equal("nodes" in review, false);
     assert.equal("plan" in review, false);
+    assert.equal("diagnostics" in review, false);
+    assert.equal("model" in review, false);
   } finally { await s.close(); }
 });
+
+test("successive plan reads expose a newer progress revision", async () => {
+  const plans = createPlanStore();
+  plans.open({ plan: "1. Add a limiter\n" });
+  const s = await listen(plans);
+  let release;
+  const waitingImpact = new Promise((resolve) => { release = resolve; });
+  try {
+    const first = await fetch(s.base + "/api/plan").then((r) => r.json());
+    const filling = plans.fill(fakeWs(SHEET), { impact: () => waitingImpact });
+    await new Promise((r) => setTimeout(r, 0));
+    const second = await fetch(s.base + "/api/plan").then((r) => r.json());
+
+    assert.ok(second.review.revision > first.review.revision);
+    assert.equal(second.review.status, "working");
+
+    release(readyImpact(second.review.steps));
+    await filling;
+  } finally { await s.close(); }
+});
+
+test("retry delegates the review id and workspace to the store", async () => {
+  const ws = fakeWs(SHEET);
+  let received = null;
+  const plans = {
+    retry(id, workspace) {
+      received = { id, workspace };
+      return id === "retryable" && workspace === ws;
+    },
+  };
+  const server = createServer(ws, plans);
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const accepted = await postResponse(base, "/api/plan/retry", { id: "retryable" });
+    assert.equal(accepted.status, 202);
+    assert.deepEqual(accepted.body, { ok: true });
+    assert.deepEqual(received, { id: "retryable", workspace: ws });
+
+    const rejected = await postResponse(base, "/api/plan/retry", { id: "not-retryable" });
+    assert.equal(rejected.status, 409);
+    assert.deepEqual(rejected.body, { ok: false });
+  } finally { await new Promise((r) => server.close(r)); }
+});
+
+test("resolve rejects approval while working but permits skip", async () => {
+  const plans = createPlanStore();
+  const { id } = plans.open({ plan: "1. Add a limiter\n" });
+  const s = await listen(plans);
+  try {
+    const approval = await post(s.base, "/api/plan/resolve", { id, accepted: [] });
+    assert.deepEqual(approval, { ok: false });
+
+    const skip = await post(s.base, "/api/plan/resolve", { id, skipped: true });
+    assert.deepEqual(skip, { ok: true });
+  } finally { await s.close(); }
+});
+
+test("resolve rejects approval after an error but permits skip", async () => {
+  const plans = createPlanStore();
+  const { id } = plans.open({ plan: "1. Add a limiter\n" });
+  await plans.fill(fakeWs(SHEET), { impact: async () => { throw new Error("nope"); } });
+  const s = await listen(plans);
+  try {
+    const approval = await post(s.base, "/api/plan/resolve", { id, accepted: [] });
+    assert.deepEqual(approval, { ok: false });
+
+    const skip = await post(s.base, "/api/plan/resolve", { id, skipped: true });
+    assert.deepEqual(skip, { ok: true });
+  } finally { await s.close(); }
+});
+
+for (const outcome of ["ready", "partial"]) {
+  test(`resolve approves a ${outcome} review`, async () => {
+    const plans = createPlanStore();
+    const { id } = plans.open({ plan: "1. Add a limiter\n" });
+    await plans.fill(fakeWs(SHEET), {
+      impact: async (_context, steps) => ({ ...readyImpact(steps), outcome }),
+    });
+    const s = await listen(plans);
+    try {
+      const approval = await post(s.base, "/api/plan/resolve", { id, accepted: [], nodes: SHEET.nodes });
+      assert.deepEqual(approval, { ok: true });
+    } finally { await s.close(); }
+  });
+}
 
 test("with nothing live the browser is told so, not given an error", async () => {
   const s = await listen(createPlanStore());
@@ -64,7 +176,7 @@ test("with nothing live the browser is told so, not given an error", async () =>
 test("a resolve releases a waiting result and returns the brief", async () => {
   const plans = createPlanStore();
   const { id } = plans.open({ plan: "1. Add a limiter\n" });
-  plans.setDelta(id, { delta: { additions: [], touches: [], connections: [], unplaced: [] }, dropped: [] });
+  await plans.fill(fakeWs(SHEET), { impact: async (_context, steps) => readyImpact(steps) });
   const s = await listen(plans);
   try {
     const waiting = fetch(`${s.base}/api/plan/result?id=${id}`).then((r) => r.json());
@@ -130,7 +242,7 @@ test("the browser's first scan is answered with the one the review is running", 
     let runs = 0;
     const filling = plans.fill(ws, {
       scan: async () => { runs++; return SCANNED; },
-      delta: async () => ({ delta: { additions: [], touches: [], connections: [], unplaced: [] }, dropped: [] }),
+      impact: async (_context, steps) => readyImpact(steps),
     });
     await new Promise((r) => setTimeout(r, 0));   // fill reads the sheet before it offers the scan
 

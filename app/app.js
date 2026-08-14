@@ -1,5 +1,36 @@
 import { generatedPositions, layeredPositions, proposalPositions } from "./graph-layout.js";
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
+import {
+  planProjectionVisible,
+  planViewNodes,
+  projectionForReview,
+  recursiveImpactCounts,
+  setImpactDecision,
+  temporaryChildren,
+} from "./plan-projection.js";
+import {
+  applyReviewRevision,
+  applyTemporaryNodeAccessibility,
+  buildPersistedSavePayload,
+  buildPlanResolvePayload,
+  capturePlanFocus,
+  handlePlanDeleteBoundary,
+  handleTemporaryActivation,
+  navigatePlanState,
+  normalizePlanNavigation,
+  persistentGraphActionAllowed,
+  planEvidenceHtml,
+  projectedEdgeEndpoints,
+  restorePlanFocus,
+  selectTemporaryPlanState,
+} from "./plan-interaction.js";
+import {
+  createPlanPollScheduler,
+  createPlanRetryController,
+  planControlState,
+  planRenderState,
+  reconcilePlanCutKeys,
+} from "./plan-progress.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
 (function () {
@@ -459,7 +490,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     S.nodes = doc.nodes; S.edges = doc.edges; S.notes = doc.notes || [];
     S.types = doc.types; S.dismissed = doc.dismissed; S.prompt = doc.prompt;
     if (S.sel && !find(S, S.sel.id) && !findEdge(S, S.sel.id)) S.sel = null;
-    if (viewRoot && !find(S, viewRoot)) viewRoot = null;
+    if (viewRoot && !viewNode(viewRoot)) viewRoot = null;
   }
 
   /* opts.transient — apply without recording undo. Used while dragging, where
@@ -596,14 +627,18 @@ import { createRolledLoader } from "./rolled-loader.js";
   let refreshNote = "";
   let refreshBusy = false;
 
-  /* The live plan review, or null. Polled rather than pushed: a plan arrives
-     while the tab may be in the background, and one request every two seconds
-     against a server on this machine costs nothing measurable — a socket to
-     avoid it would be the first dependency in the product. */
+  /* The live plan review, or null. Polled rather than pushed: active work is
+     read quickly enough for each server revision to be visible, then the loop
+     backs off once there is no review to follow. */
   let plan = null;
   let planCut = new Set();          // proposal keys the user has crossed out
   let planAt = 0;                   // which proposal the stepper is showing
+  let planSelectedId = null;        // focused/selected temporary representation
   let planSending = false;          // an answer is in flight; see sendAnswer
+  let planProjection = { reviewId: "", nodes: [], edges: [], annotations: {
+    removals: [], responsibilities: [], disconnections: [],
+  } };
+  let planImpactCounts = new Map();
   /* Whether /api/doc handed us a document. A review opens either way — see
      boot() — but a ghost does not: it is drawn beside the block it relates to,
      and on a sheet that never loaded there are no blocks to relate it to. It
@@ -630,15 +665,8 @@ import { createRolledLoader } from "./rolled-loader.js";
      choice without putting a made-up node through the document save path. */
   let movedGhosts = new Map();
 
-  /* Must match proposalKey in src/plan-brief.js exactly — the literals are
-     pinned by test/plan-brief.test.js, and this line is the other half of
-     that pair. There is no build step here, so the browser cannot import it,
-     and a key the server does not recognise is read as a rejection rather
-     than an error — the one disagreement in this feature that would fail
-     silently. */
-  const planKey = (kind, a, b) => (kind === "edge" ? "edge:" + a + ">" + b : kind + ":" + a);
-
   const canvas = document.getElementById("canvas");
+  const planStatusEl = document.getElementById("plan-status");
   const world = document.getElementById("world");
   const wires = document.getElementById("wires");
   const labelLayer = document.getElementById("wire-labels");
@@ -657,6 +685,9 @@ import { createRolledLoader } from "./rolled-loader.js";
   const shell = document.getElementById("shell");
 
   const node = (id) => S.nodes.find((n) => n.id === id);
+  const temporaryNode = (id) => planProjection.nodes.find((n) => n.id === id);
+  const viewNode = (id) => node(id) || temporaryNode(id);
+  const isPersistedNode = (candidate) => !!candidate && !candidate.planType;
   const has = (k) => S.nodes.some((n) => kindKey(n.kind) === k);
   const first = (k) => S.nodes.find((n) => kindKey(n.kind) === k);
   const linked = (a, b) => S.edges.some((e) => (e.from === a && e.to === b) || (e.from === b && e.to === a));
@@ -666,6 +697,23 @@ import { createRolledLoader } from "./rolled-loader.js";
   // ---- containment: a node may contain other nodes (C4-style) ----
   const childrenOf = (id) => S.nodes.filter((n) => n.parent === id);
   const isContainer = (id) => childrenOf(id).length > 0;
+  const hasViewChildren = (id) => isContainer(id) || temporaryChildren(planProjection, id).length > 0;
+
+  function syncPlanProjection() {
+    const previousProjection = planProjection;
+    const nextProjection = projectionForReview(plan, S.nodes, S.edges, previousProjection);
+    const navigation = normalizePlanNavigation({
+      viewRoot,
+      selectedId: planSelectedId,
+      previousProjection,
+      projection: nextProjection,
+      persistedNodes: S.nodes,
+    });
+    viewRoot = navigation.viewRoot;
+    planSelectedId = navigation.selectedId;
+    planProjection = nextProjection;
+    planImpactCounts = recursiveImpactCounts(planProjection, S.nodes);
+  }
 
   // A container is always drawn folded now — double-click navigates into it
   // rather than unfolding it in place (see enterNode). So "what's on the
@@ -673,7 +721,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   // navigated into, or the real top-level nodes if we haven't navigated
   // anywhere.
   function currentLevelNodes() {
-    return viewRoot ? childrenOf(viewRoot) : S.nodes.filter((n) => !n.parent);
+    return planViewNodes(viewRoot, S.nodes, planProjection);
   }
 
   // Projects any node id to whichever node is actually drawn at the current
@@ -683,11 +731,11 @@ import { createRolledLoader } from "./rolled-loader.js";
   // an unrelated branch of the tree, or is nested deeper and viewRoot isn't
   // one of its ancestors.
   function levelAncestor(id) {
-    let n = id ? node(id) : null;
+    let n = id ? viewNode(id) : null;
     while (n) {
       const p = n.parent || null;
       if (p === viewRoot) return n.id;
-      n = p ? node(p) : null;
+      n = p ? viewNode(p) : null;
     }
     return null;
   }
@@ -696,8 +744,8 @@ import { createRolledLoader } from "./rolled-loader.js";
   // last. Derived from `parent`, never stored.
   function viewPath(id) {
     const path = [];
-    let n = id ? node(id) : null;
-    while (n) { path.unshift(n); n = n.parent ? node(n.parent) : null; }
+    let n = id ? viewNode(id) : null;
+    while (n) { path.unshift(n); n = n.parent ? viewNode(n.parent) : null; }
     return path;
   }
 
@@ -900,9 +948,10 @@ import { createRolledLoader } from "./rolled-loader.js";
      a hardcoded list of kinds. */
   function groupable() {
     let best = null;
-    currentLevelNodes().forEach((hub) => {
+    const persisted = currentLevelNodes().filter(isPersistedNode);
+    persisted.forEach((hub) => {
       if (isContainer(hub.id)) return;
-      const leaves = currentLevelNodes().filter((n) =>
+      const leaves = persisted.filter((n) =>
         n.id !== hub.id && !isContainer(n.id) &&
         !traitsOf(n).has("user-facing") &&
         degree(n.id) === 1 && linked(n.id, hub.id));
@@ -917,7 +966,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   /* ---------- the engine. It knows nothing about any particular rule. ---------- */
 
   function context() {
-    const onSheet = currentLevelNodes();
+    const onSheet = currentLevelNodes().filter(isPersistedNode);
     const traits = new Map();
     S.nodes.forEach((n) => traits.set(n.id, traitsOf(n)));
 
@@ -1725,7 +1774,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       fetch("/api/doc", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(toDoc(S)),
+        body: JSON.stringify(buildPersistedSavePayload(toDoc(S), planProjection)),
       }).catch(function (e) { console.warn("could not save:", e.message); });
     }, 400);
   }
@@ -1753,13 +1802,20 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function renderNodes() {
     [].slice.call(world.querySelectorAll(".node")).forEach((el) => el.remove());
+    syncPlanProjection();
     const flagged = new Set();
     if (hoverCheck) (hoverCheck.marks || []).forEach((m) => flagged.add(m));
 
-    currentLevelNodes().forEach((n) => {
+    const level = currentLevelNodes();
+    level.filter(isPersistedNode).forEach((n) => {
       const k = iconFor(n.kind);
       const kids = childrenOf(n.id).length;
+      const enterable = hasViewChildren(n.id);
       const moved = (changedInside.get(n.id) || []).length;
+      const removals = planProjection.annotations.removals.filter((item) => item.targetId === n.id);
+      const responsibilities = planProjection.annotations.responsibilities.filter((item) => item.targetId === n.id);
+      const removing = removals.some((item) => !planCut.has(item.impactKey));
+      const changingResponsibility = responsibilities.some((item) => !planCut.has(item.impactKey));
       // Looking at one change dims everything that isn't part of it. Dimmed,
       // not hidden: the rest of the system is the context that makes the part
       // legible, and a block that vanished would take its position with it.
@@ -1767,14 +1823,36 @@ import { createRolledLoader } from "./rolled-loader.js";
                       !changeGroups[pickedGroup].blocks.includes(n.id);
       const el = document.createElement("div");
       el.className = "node" + (S.sel && S.sel.type === "node" && S.sel.id === n.id ? " sel" : "") +
-                     (flagged.has(n.id) ? " flagged" : "") + (kids ? " collapsed" : "") +
-                     (moved ? " inside" : "") + (outside ? " aside" : "");
+                     (flagged.has(n.id) ? " flagged" : "") + (enterable ? " collapsed" : "") +
+                     (moved ? " inside" : "") + (outside ? " aside" : "") +
+                     (removals.length ? " plan-removal" : "") +
+                     (responsibilities.length ? " plan-responsibility" : "");
       el.style.left = n.x + "px";
       el.style.top = n.y + "px";
       el.dataset.id = n.id;
+      el.dataset.enterable = String(enterable);
+      el.dataset.removalCut = String(removals.length > 0 && !removing);
+      el.dataset.responsibilityCut = String(responsibilities.length > 0 && !changingResponsibility);
       el.tabIndex = 0;
+      const count = planImpactCounts.get(n.id) || 0;
+      const annotation = [...removals.map((item) => ({ ...item, label: "remove" })),
+        ...responsibilities.map((item) => ({ ...item, label: "responsibility" }))]
+        .map((item) => {
+          const cut = planCut.has(item.impactKey);
+          return '<span class="plan-annotation" data-impact-key="' + esc(item.impactKey) + '">' +
+            '<span>' + esc(item.label) + '</span>' +
+            '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(item.impactKey) +
+              '" data-plan-owner-id="' + esc(n.id) +
+              '" data-plan-representation-id="' + esc(item.id) +
+              '" aria-pressed="' + String(!cut) + '">Keep</button>' +
+            '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(item.impactKey) +
+              '" data-plan-owner-id="' + esc(n.id) +
+              '" data-plan-representation-id="' + esc(item.id) +
+              '" aria-pressed="' + String(cut) + '">Cut</button></span>';
+        }).join("");
       el.innerHTML =
         (moved ? '<span class="node-changed">' + moved + ' changed</span>' : "") +
+        (count ? '<span class="plan-count">' + count + ' planned change' + (count === 1 ? "" : "s") + '</span>' : "") +
         // The block's own kind is what the badge says — design §5 makes kind
         // free text that drives the *icon*, with a generic icon when it isn't
         // recognised. Only a block with no kind at all falls back to the
@@ -1789,38 +1867,67 @@ import { createRolledLoader } from "./rolled-loader.js";
         '<div class="node-name">' + esc(n.name) + "</div>" +
         '<div class="node-intent' + (n.intent.trim() ? "" : " empty") + '">' +
           esc(n.intent.trim() || "What should this do?") + "</div>" +
+        annotation +
         holdsHtml(n.id) +
         '<button class="port" data-port="' + n.id + '" aria-label="Connect from ' + esc(n.name) + '"></button>';
       world.appendChild(el);
     });
 
-    /* The blocks a plan would add, drawn where they would go. They never enter
-       S.nodes and never go through applyMove: nothing in a review is saved,
-       and the sheet on disk is untouched until somebody builds the thing for
-       real. No tabIndex and no port keep a ghost out of selection and wiring;
-       dragging only changes the transient position held with this review. */
     ghostAt = new Map();
-    if (!sheetLoaded || !plan || plan.status !== "ready") return;
-    ghostAt = ghostPositions(plan.delta.additions);
-    for (const a of plan.delta.additions) {
-      const p = ghostAt.get(a.id);
-      const k = iconFor(a.kind);
-      const el = document.createElement("div");
-      el.className = "node";
-      el.dataset.id = a.id;
-      el.dataset.proposed = "true";
-      el.dataset.cut = String(planCut.has(planKey("add", a.id)));
-      el.style.left = p.x + "px";
-      el.style.top = p.y + "px";
-      el.innerHTML =
-        '<div class="node-top">' + k.icon +
-          '<span class="node-kind">' + esc((a.kind || "").trim() || k.label) + "</span></div>" +
-        '<div class="node-name">' + esc(a.name) + "</div>" +
-        '<div class="node-intent">' + esc(a.intent || "") + "</div>";
-      world.appendChild(el);
-    }
+    if (!sheetLoaded || !planProjectionVisible(plan)) return;
+    const temporary = level.filter((candidate) => !isPersistedNode(candidate));
+    ghostAt = ghostPositions(temporary);
+    temporary.forEach((candidate) => renderTemporaryNode(candidate, ghostAt.get(candidate.id)));
     // The elements were just replaced; put the spotlight back on the new ones.
     applyPlanLit();
+  }
+
+  function renderTemporaryNode(n, position) {
+    if (!position) return;
+    const cut = !!n.impactKey && planCut.has(n.impactKey);
+    const selected = planSelectedId === n.id;
+    const enterable = n.planType !== "card" && hasViewChildren(n.id);
+    const typeClass = n.planType === "card" ? " plan-card" :
+      n.planType === "group" ? " plan-group" : " plan-addition";
+    const el = document.createElement("div");
+    el.className = "node" + typeClass + (enterable ? " collapsed" : "") +
+      (selected ? " plan-selected" : "");
+    el.dataset.id = n.id;
+    el.dataset.planType = n.planType;
+    el.dataset.enterable = String(enterable);
+    el.dataset.proposed = String(n.planType === "addition");
+    el.dataset.cut = String(cut);
+    if (n.impactKey) el.dataset.impactKey = n.impactKey;
+    el.style.left = position.x + "px";
+    el.style.top = position.y + "px";
+    const k = iconFor(n.kind || "");
+    const count = planImpactCounts.get(n.id) || 0;
+    const controls = n.impactKey && planControlState(plan).keep
+      ? '<span class="plan-card-controls" data-impact-key="' + esc(n.impactKey) + '">' +
+          '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(n.impactKey) +
+            '" data-plan-owner-id="' + esc(n.id) +
+            '" data-plan-representation-id="' + esc(n.id) +
+            '" aria-pressed="' + String(!cut) + '">Keep</button>' +
+          '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(n.impactKey) +
+            '" data-plan-owner-id="' + esc(n.id) +
+            '" data-plan-representation-id="' + esc(n.id) +
+            '" aria-pressed="' + String(cut) + '">Cut</button></span>'
+      : "";
+    el.innerHTML = count
+      ? '<span class="plan-count">' + count + ' planned change' + (count === 1 ? "" : "s") + "</span>"
+      : "";
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "plan-node-action";
+    applyTemporaryNodeAccessibility(action, n, { enterable, selected });
+    action.innerHTML =
+      '<span class="node-top">' + (n.planType === "card" ? "" : k.icon) +
+        '<span class="node-kind">' + esc(n.cardKind || (n.kind || "").trim() || k.label) + "</span></span>" +
+      '<span class="node-name">' + esc(n.name) + "</span>" +
+      '<span class="node-intent">' + esc(n.intent || "") + "</span>";
+    el.appendChild(action);
+    if (controls) el.insertAdjacentHTML("beforeend", controls);
+    world.appendChild(el);
   }
 
   /* A ghost is laid out at a fixed height rather than a measured one. Real
@@ -1838,11 +1945,11 @@ import { createRolledLoader } from "./rolled-loader.js";
   const GHOST_H = 220;
 
   function ghostPositions(additions) {
-    const real = currentLevelNodes();
+    const real = currentLevelNodes().filter(isPersistedNode);
     const proposed = new Set(additions.map((addition) => addition.id));
     const visible = (id) => proposed.has(id) ? id : levelAncestor(id);
     const pairs = new Set();
-    const edges = [...S.edges, ...(plan.delta.connections || [])].flatMap((edge) => {
+    const edges = [...S.edges, ...planProjection.edges].flatMap((edge) => {
       const from = visible(edge.from), to = visible(edge.to);
       const key = from + ">" + to;
       if (!from || !to || from === to || pairs.has(key)) return [];
@@ -1963,7 +2070,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     }
     const keys = document.getElementById("plan-keys");
     if (keys) {
-      const reviewing = !!plan && planOpen() && plan.status === "ready";
+      const reviewing = !!plan && planOpen() && (plan.status === "ready" || plan.status === "partial");
       keys.hidden = !reviewing;
       if (reviewing && keys.dataset.filled !== "1") {
         keys.dataset.filled = "1"; keys.innerHTML = REVIEW_KEYS;
@@ -1996,7 +2103,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   // scoped to its own children, with its own crowding cap (context()/
   // groupable() key off currentLevelNodes(), which is viewRoot-scoped).
   function enterNode(id, selectId) {
-    if (!isContainer(id)) return;
+    if (!hasViewChildren(id)) return;
     // Selection first: goToView renders, and the block you named should
     // arrive already selected rather than lighting up a frame later.
     if (selectId && find(S, selectId)) S.sel = { type: "node", id: selectId };
@@ -2341,34 +2448,71 @@ import { createRolledLoader } from "./rolled-loader.js";
      lives, so agreeing happens after seeing everything rather than beside
      the first thing. */
   function planStepList() {
-    if (!plan || plan.status !== "ready") return [];
-    const d = plan.delta;
+    if (!plan || (plan.status !== "ready" && plan.status !== "partial")) return [];
     const nameOf = (id) => {
-      const added = d.additions.find((a) => a.id === id);
+      const added = planProjection.nodes.find((candidate) =>
+        candidate.planType === "addition" && candidate.sourceId === id);
       if (added) return added.name;
       const n = node(id);
       return n ? n.name : id;
     };
+    const projectedId = (id) => {
+      const added = planProjection.nodes.find((candidate) =>
+        candidate.planType === "addition" && candidate.sourceId === id);
+      return added ? added.id : id;
+    };
     const reachFor = (ids) => (plan.reach || [])
       .filter((r) => ids.includes(r.via))
       .map((r) => ({ ...r, name: nameOf(r.id) }));
-    const out = [];
-    d.additions.forEach((a) => out.push({
-      key: planKey("add", a.id), mark: "+", name: a.name, why: a.intent,
-      steps: a.steps, lit: [a.id], detail: a.dir ? "New block · lives in " + a.dir : "New block",
-      files: a.files || [], reach: reachFor([a.id]),
-    }));
-    d.connections.forEach((c) => out.push({
-      key: planKey("edge", c.from, c.to), mark: "→",
-      name: nameOf(c.from) + " → " + nameOf(c.to), why: c.label,
-      steps: c.steps, lit: [c.from, c.to], wire: c.from + " " + c.to,
-      detail: "New line between two blocks", reach: reachFor([c.from, c.to]),
-    }));
-    d.touches.forEach((x) => out.push({
-      key: planKey("touch", x.id), mark: "~", name: nameOf(x.id), why: x.why,
-      steps: x.steps, lit: [x.id], size: x.size || "small",
-      detail: "Existing block · its description changes", reach: reachFor([x.id]),
-    }));
+    const byStep = new Map((plan.steps || []).map((step) => [step.n, step.text]));
+    const out = (plan.impacts || []).map((impact) => {
+      const card = planProjection.nodes.find((candidate) =>
+        candidate.planType === "card" && candidate.impactKey === impact.key);
+      const additions = impact.additions || [];
+      const removals = impact.removals || [];
+      const responsibilities = impact.responsibilities || [];
+      const connections = impact.connections || [];
+      const disconnections = impact.disconnections || [];
+      const rawIds = [
+        impact.targetId,
+        ...additions.map((addition) => addition.id),
+        ...removals.map((removal) => removal.id),
+        ...responsibilities.map((responsibility) => responsibility.id),
+        ...connections.flatMap((connection) => [connection.from, connection.to]),
+        ...disconnections.flatMap((connection) => [connection.from, connection.to]),
+      ].filter(Boolean);
+      const lit = [...new Set([
+        ...rawIds.map(projectedId),
+        ...(card ? [card.id, card.parent] : []),
+      ])];
+      const operations = [
+        additions.length ? additions.length + " addition" + (additions.length === 1 ? "" : "s") : "",
+        removals.length ? removals.length + " removal" + (removals.length === 1 ? "" : "s") : "",
+        responsibilities.length ? responsibilities.length + " responsibility change" + (responsibilities.length === 1 ? "" : "s") : "",
+        connections.length ? connections.length + " new connection" + (connections.length === 1 ? "" : "s") : "",
+        disconnections.length ? disconnections.length + " removed connection" + (disconnections.length === 1 ? "" : "s") : "",
+      ].filter(Boolean);
+      const mark = impact.level === "unresolved" ? "?" : impact.level === "support" ? "•" :
+        impact.level === "component" ? "~" : additions.length ? "+" : removals.length ? "−" :
+          connections.length ? "→" : disconnections.length ? "↛" : "~";
+      return {
+        key: impact.key,
+        impact,
+        mark,
+        name: impact.title,
+        why: impact.why,
+        size: impact.size || "",
+        steps: impact.steps || [],
+        stepTexts: (impact.steps || []).map((number) => ({ number, text: byStep.get(number) || "" })),
+        files: impact.files || [],
+        symbols: impact.symbols || [],
+        lit,
+        detail: operations.join(" · ") ||
+          (impact.level === "support" ? "Supporting work" :
+            impact.level === "unresolved" ? "Placement needs review" : "Internal work"),
+        reach: reachFor(rawIds),
+      };
+    });
     out.push({ summary: true, lit: [] });
     return out;
   }
@@ -2405,18 +2549,37 @@ import { createRolledLoader } from "./rolled-loader.js";
   const cap = (x) => String(x || "").charAt(0).toUpperCase() + String(x || "").slice(1);
 
   function planSaysWhat(s) {
-    if (s.mark === "+") {
-      return "This does not exist yet. " + (s.why || "The plan does not say what it would do.");
+    if (s.impact.level === "unresolved") {
+      return "This needs an explicit component before implementation" + (s.why ? ": " + s.why : ".");
     }
-    if (s.mark === "→") {
-      const [from, to] = s.name.split(" → ");
-      /* The label is third person — "tracks requests", "provides middleware" —
-         so a "to" clause produced "to tracks requests". It is a caption for
-         the line, so it goes after the sentence, not inside it. */
-      return from + " would start using " + to + "." + (s.why ? " " + cap(s.why) + "." : "");
-    }
-    return "This already exists, and what it does would change" +
-           (s.why ? ": " + s.why + "." : ".");
+    if (s.impact.level === "support") return cap(s.why || "This supports the planned work.");
+    if (s.impact.level === "component") return cap(s.why || "This changes work inside the component.");
+    return cap(s.why || "This changes the system structure.");
+  }
+
+  function renderPlanControls(stage, controls) {
+    const keep = document.getElementById("plan-keep");
+    const cut = document.getElementById("plan-cut");
+    const approve = document.getElementById("plan-approve");
+    const retry = document.getElementById("plan-retry");
+    const skip = document.getElementById("plan-skip");
+    const nav = document.getElementById("plan-nav");
+    const foot = document.getElementById("plan-foot");
+    const warning = document.getElementById("plan-warning");
+    const busy = planSending;
+
+    keep.hidden = !controls.keep || stage === "summary";
+    cut.hidden = !controls.cut || stage === "summary";
+    approve.hidden = !controls.approve || stage === "step";
+    retry.hidden = !controls.retry;
+    skip.hidden = !controls.skip;
+    nav.hidden = !controls.navigation;
+    keep.disabled = busy; cut.disabled = busy; approve.disabled = busy;
+    retry.disabled = busy; skip.disabled = busy;
+    foot.dataset.stage = stage;
+    foot.hidden = keep.hidden && cut.hidden && approve.hidden && retry.hidden && skip.hidden && nav.hidden;
+    warning.textContent = controls.warning;
+    warning.hidden = !controls.warning;
   }
 
   function renderPlan() {
@@ -2424,8 +2587,10 @@ import { createRolledLoader } from "./rolled-loader.js";
     const body = document.getElementById("plan-body");
     const loading = document.getElementById("plan-loading");
     const loadingBall = document.getElementById("plan-loading-ball");
-    const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
     const progress = document.getElementById("plan-progress");
+    const stepProgress = document.getElementById("plan-step-progress");
+    const renderState = planRenderState(plan, planProjection, S.nodes);
+    planStatusEl.textContent = renderState.announcement;
     /* The stepper's keys travel with the panel, and nothing else renders
        them — so a review that ends without passing through here left K and C
        floating over the sheet, offering shortcuts for a decision already
@@ -2433,32 +2598,57 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (!plan) {
       planLoader.stop();
       loading.hidden = true;
+      document.getElementById("plan-warning").hidden = true;
       setPlanOpen(false);
       renderHint();
       return;
     }
 
-    const approve = document.getElementById("plan-approve");
-    const thinking = plan.status === "thinking";
-    approve.disabled = thinking;
+    const working = plan.status === "working" || plan.status === "thinking";
 
-    if (thinking) {
+    if (working) {
       renderAsk();
-      note.textContent = "";
+      note.textContent = plan.note || "";
+      progress.textContent = renderState.progress;
       loading.hidden = false;
       body.hidden = true;
       planLoader.start(loadingBall, 58);
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
-      progress.hidden = true;
-      foot.dataset.stage = "thinking";
+      stepProgress.hidden = true;
+      renderPlanControls("working", renderState.controls);
+      applyPlanLit();
+      renderHint();
+      positionHint();
       return;
     }
     planLoader.stop();
     loading.hidden = true;
-    note.textContent = plan.note || "";
     body.hidden = false;
-    progress.hidden = false;
+    stepProgress.hidden = false;
+
+    if (plan.status === "error") {
+      note.textContent = "";
+      document.getElementById("plan-dots").innerHTML = "";
+      document.getElementById("plan-of").textContent = "";
+      document.getElementById("plan-mark").textContent = "!";
+      document.getElementById("plan-nm").textContent = "Review paused";
+      document.getElementById("plan-size").textContent = "";
+      document.getElementById("plan-from").textContent = "";
+      document.getElementById("plan-why").textContent = renderState.summary;
+      document.getElementById("plan-detail").textContent = "";
+      document.getElementById("plan-evidence").innerHTML = "";
+      document.getElementById("plan-reach").textContent = "";
+      document.getElementById("plan-quote").innerHTML = "";
+      renderPlanControls("error", renderState.controls);
+      applyPlanLit();
+      renderAsk();
+      renderHint();
+      positionHint();
+      return;
+    }
+
+    note.textContent = plan.note || "";
 
     const list = planStepList();
     if (planAt >= list.length) planAt = list.length - 1;
@@ -2480,51 +2670,20 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     const cut = document.getElementById("plan-cut");
     const keep = document.getElementById("plan-keep");
+    const evidence = document.getElementById("plan-evidence");
     if (s.summary) {
       const kept = list.filter((x) => !x.summary && !planCut.has(x.key)).length;
       const gone = list.filter((x) => !x.summary && planCut.has(x.key)).length;
-      const idle = [...new Set(plan.delta.unplaced.flatMap((u) => u.steps))];
       document.getElementById("plan-mark").textContent = "";
-      document.getElementById("plan-nm").textContent =
-        list.length === 1 ? "This plan changes nothing structural" : "That's everything";
+      document.getElementById("plan-nm").textContent = "That's everything";
       document.getElementById("plan-size").textContent = "";
       document.getElementById("plan-from").textContent = "";
-      document.getElementById("plan-why").textContent =
-        (list.length === 1 ? "" : kept + " kept, " + gone + " cut. ") +
-        (idle.length
-          ? idle.length + " plan step" + (idle.length > 1 ? "s" : "") +
-            " change nothing about the shape of your system and stay as written."
-          : "");
-      document.getElementById("plan-detail").textContent = "";
+      document.getElementById("plan-why").textContent = renderState.summary;
+      document.getElementById("plan-detail").textContent = kept + " kept, " + gone + " cut.";
       document.getElementById("plan-reach").textContent = "";
-      /* The steps themselves, not only how many. This number is the one the
-         whole product turns on — it says how much of a long plan you are
-         entitled to skim — and a count you cannot check is a claim, not
-         evidence. The list panel this replaced could open them; losing that
-         made the most important figure on screen the least verifiable. */
-      const byStep = new Map((plan.steps || []).map((x) => [x.n, x.text]));
-      /* Grouped by the model's own reason rather than flattened into one list.
-         The reason is already computed and was being thrown away, and it is
-         the difference between "these did not count" and "these did not count
-         because they are implementation detail". A reader who disagrees with
-         a grouping can only say so if they can see the reason given. */
-      const groups = (plan.delta.unplaced || [])
-        .map((u) => ({
-          why: (u.why || "").trim(),
-          steps: (u.steps || []).slice().sort((a, b) => a - b),
-        }))
-        .filter((g) => g.steps.length);
-      const items = (ns) =>
-        "<ol>" + ns.map((n) => '<li value="' + n + '">' + esc(byStep.get(n) || "") + "</li>").join("") + "</ol>";
-      document.getElementById("plan-quote").innerHTML = groups.length
-        ? "<details><summary>which steps those are</summary>" +
-          groups.map((g) =>
-            '<div class="plan-idle-group">' +
-            (g.why ? '<p class="plan-idle-why">' + esc(g.why) + "</p>" : "") +
-            items(g.steps) + "</div>").join("") +
-          "</details>"
-        : "";
-      foot.dataset.stage = "summary";
+      evidence.innerHTML = "";
+      document.getElementById("plan-quote").innerHTML = "";
+      renderPlanControls("summary", renderState.controls);
     } else {
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
       document.getElementById("plan-nm").textContent = s.name;
@@ -2532,16 +2691,8 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-from").textContent =
         "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
       document.getElementById("plan-why").textContent = planSaysWhat(s);
-      /* A bare list of paths does not say what it is a list of. Adding and
-         changing are different enough that the reader should not have to work
-         out which one they are looking at from the marker alone. */
-      const files = s.files || [];
-      const filesEl = document.getElementById("plan-detail");
-      filesEl.innerHTML = files.length
-        ? '<span class="plan-files-label">' +
-          (s.mark === "+" ? "Files it would add" : "Files it would change") + "</span>" +
-          files.map((f) => '<code>' + esc(f) + "</code>").join("")
-        : "";
+      document.getElementById("plan-detail").textContent = s.detail || "";
+      evidence.innerHTML = planEvidenceHtml(s);
       const reach = s.reach || [];
       document.getElementById("plan-reach").innerHTML = reach.length
         ? '<span class="plan-files-label">Already used by</span>' +
@@ -2551,7 +2702,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-quote").innerHTML = said
         ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
         : "";
-      foot.dataset.stage = "step";
+      renderPlanControls("step", renderState.controls);
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
     }
@@ -2575,7 +2726,7 @@ import { createRolledLoader } from "./rolled-loader.js";
      belongs with whatever builds the elements. */
   function applyPlanLit() {
     const s = planStepList()[planAt];
-    const on = plan && plan.status === "ready" && s && !s.summary;
+    const on = plan && (plan.status === "ready" || plan.status === "partial") && s && !s.summary;
     shell.dataset.planSpot = on ? "on" : "off";
     const lit = new Set(on ? s.lit : []);
     const reached = new Set(on ? (s.reach || []).map((r) => r.id) : []);
@@ -2585,7 +2736,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       el.dataset.reach = String(!isLit && reached.has(el.dataset.id));
     }
     for (const el of wires.querySelectorAll("path")) {
-      el.dataset.lit = String(on && !!(s && s.wire) && el.dataset.pair === s.wire);
+      el.dataset.lit = String(on && el.dataset.impactKey === s.key);
     }
     return on ? [...lit] : null;
   }
@@ -2640,13 +2791,15 @@ import { createRolledLoader } from "./rolled-loader.js";
     const live = !!plan;
     wrap.hidden = !live;
     if (!live) { wrap.dataset.open = "false"; return; }
-    const idle = plan.status === "ready"
-      ? [...new Set(plan.delta.unplaced.flatMap((u) => u.steps))].length : 0;
+    const needsReview = planProjectionVisible(plan)
+      ? [...new Set((plan.impacts || []).filter((impact) => impact.level === "unresolved")
+          .flatMap((impact) => impact.steps || []))].length : 0;
     const total = (plan.steps || []).length;
     brief.innerHTML =
       "<b>You asked for</b><span>" + esc(plan.request || firstStepText()) + "</span>" +
       (total ? '<b style="margin-top:5px">' + total + " plan step" + (total > 1 ? "s" : "") +
-        (idle ? " · " + idle + " change nothing structural" : "") + "</b>" : "");
+        (needsReview ? " · " + needsReview + (needsReview === 1 ? " needs" : " need") + " review" : "") +
+        "</b>" : "");
   }
 
   /* The server sends the plan's steps but not the sentence that prompted it,
@@ -2746,13 +2899,50 @@ import { createRolledLoader } from "./rolled-loader.js";
     grip.addEventListener("pointercancel", land);
   })();
 
-  function planDecide(cutIt) {
-    const list = planStepList();
-    const s = list[planAt];
-    if (!s || s.summary) return;
-    cutIt ? planCut.add(s.key) : planCut.delete(s.key);
+  function redrawPlanWithFocus(focusToken) {
     renderPlan();
     drawPlan();
+    if (focusToken) requestAnimationFrame(() => restorePlanFocus(world, focusToken));
+  }
+
+  function planDecide(cutIt, impactKey, focusToken) {
+    const list = planStepList();
+    const s = list[planAt];
+    impactKey = impactKey || (s && !s.summary ? s.key : "");
+    if (!impactKey) return;
+    const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
+    if (index >= 0) planAt = index;
+    planCut = setImpactDecision(planCut, impactKey, cutIt);
+    redrawPlanWithFocus(focusToken);
+  }
+
+  function focusTemporaryPlanRepresentation(impactKey, representationId, renderPanel) {
+    const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
+    if (index >= 0) planAt = index;
+    const next = selectTemporaryPlanState({
+      persistedSelection: S.sel,
+      planSelectedId,
+      inspectorOpen,
+      hunkView,
+    }, representationId);
+    S.sel = next.persistedSelection;
+    planSelectedId = next.planSelectedId;
+    inspectorOpen = next.inspectorOpen;
+    hunkView = next.hunkView;
+    renderInspector();
+    if (renderPanel) renderPlan();
+  }
+
+  function selectPlanImpact(impactKey, representationId) {
+    const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
+    if (index < 0) return;
+    if (representationId) {
+      focusTemporaryPlanRepresentation(impactKey, representationId, false);
+      redrawPlanWithFocus({ kind: "action", id: representationId });
+      return;
+    }
+    planAt = index;
+    renderPlan();
   }
 
   function planGo(delta) {
@@ -2769,7 +2959,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   /* Reviewing is a reading task, and six decisions is six round trips to the
      mouse otherwise. */
   document.addEventListener("keydown", (ev) => {
-    if (!plan || !planOpen() || plan.status !== "ready") return;
+    if (!plan || !planOpen() || (plan.status !== "ready" && plan.status !== "partial")) return;
     const el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
     if (el && el.isContentEditable) return;
@@ -2820,7 +3010,8 @@ import { createRolledLoader } from "./rolled-loader.js";
       });
       const out = await res.json().catch(() => null);
       if (!res.ok || !out || out.ok === false) throw new Error("refused");
-      plan = null; movedGhosts.clear(); renderPlan(); drawPlan();
+      plan = null; movedGhosts.clear();
+      syncPlanProjection(); renderPlan(); drawPlan();
       handOff(sent);
     } catch {
       // Only if this is still the review that was being answered — a poll may
@@ -2833,83 +3024,124 @@ import { createRolledLoader } from "./rolled-loader.js";
     }
   }
 
-  /* Skip is gone from the panel.
-     It resolved the review as unanswered, so the agent proceeded with the plan
-     exactly as written — which is what approving with nothing cut already
-     does, except approving also sends the "do not touch" list. So the quick
-     button was the one that threw the product's output away, sitting at equal
-     weight beside the one that kept it.
-
-     The route still accepts `skipped`, because a caller that genuinely wants
-     to abandon a review should be able to, and the command still gives up on
-     its own after ten minutes. Nothing here is a dead end without it. */
-
-  document.getElementById("plan-approve").addEventListener("click", () => {
-    if (!plan) return;
-    const d = plan.delta;
-    const all = [
-      ...d.additions.map((a) => planKey("add", a.id)),
-      ...d.touches.map((t) => planKey("touch", t.id)),
-      ...d.connections.map((c) => planKey("edge", c.from, c.to)),
-    ];
-    const accepted = all.filter((k) => !planCut.has(k));
-    sendAnswer({
-      id: plan.id,
-      accepted,
-      nodes: S.nodes.map((n) => ({ id: n.id, name: n.name, intent: n.intent })),
-    }, { kept: accepted.length, cut: all.length - accepted.length });
+  const retryPlan = createPlanRetryController({
+    review: () => plan,
+    publish(next) {
+      plan = next;
+      if (plan) { clearHandoff(); setPlanOpen(true); }
+      renderPlan();
+      drawPlan();
+    },
+    fetch: (...args) => fetch(...args),
   });
 
-  /* The review this browser has already drawn, as id and status. Compared
+  document.getElementById("plan-retry").addEventListener("click", async () => {
+    document.getElementById("plan-close").focus({ preventScroll: true });
+    const retried = await retryPlan();
+    if (!retried && plan && plan.status === "error") {
+      document.getElementById("plan-retry").focus({ preventScroll: true });
+    }
+  });
+
+  document.getElementById("plan-skip").addEventListener("click", () => {
+    if (!plan || plan.status !== "error") return;
+    sendAnswer({ id: plan.id, skipped: true }, { skipped: true });
+  });
+
+  document.getElementById("plan-approve").addEventListener("click", () => {
+    if (!plan || (plan.status !== "ready" && plan.status !== "partial")) return;
+    const all = (plan.impacts || []).map((impact) => impact.key);
+    const body = buildPlanResolvePayload(plan, planCut, S.nodes, planProjection);
+    sendAnswer(body, { kept: body.accepted.length, cut: all.length - body.accepted.length });
+  });
+
+  /* The review revision this browser has already drawn, as id, status, and
+     monotonic revision. Compared
      against rather than against `plan` itself, because a review that has been
      answered leaves `plan` null while the server goes on reporting it — and
      "different from null" would then be true on every poll for the rest of
-     the session, redrawing the whole sheet every two seconds. */
+     the session, redrawing the whole sheet on every idle pass. */
   let planSeen = "";
 
   async function pollPlan() {
     try {
       const { review } = await fetch("/api/plan").then((r) => r.json());
-      const stamp = review ? review.id + ":" + review.status : "";
-      const wasThinking = !!plan && plan.status === "thinking";
-      if (stamp === planSeen) return;
-      planSeen = stamp;
-      // Proposal ids can recur in a later review; carrying a coordinate across
-      // that boundary would make a new proposal inherit an old decision.
-      movedGhosts.clear();
-      // A review that has been answered is over: it stays on the server so the
-      // command waiting on it can read the brief, but there is nothing left to
-      // show and reopening the panel over a decision already sent would be a
-      // question asked twice.
-      plan = review && (review.status === "thinking" || review.status === "ready") ? review : null;
-      // A new review starts with everything accepted. Rejecting is the
-      // deliberate act; requiring a click per block to approve a plan you
-      // agree with would make the common case the expensive one.
-      if (plan && plan.status === "ready") { planCut = new Set(); planAt = 0; }
-      /* thinking -> ready is when the panel gains its content and the sheet
-         gains its ghosts. Both change what a fit should produce, so this is
-         the moment to compute one. */
-      if (plan && plan.status === "ready" && wasThinking) fitAfterSettling();
-      // A second review means the session came back here, so the note telling
-      // them to leave has been answered by events.
-      if (plan) { clearHandoff(); setPlanOpen(true); }
-      renderPlan();
-      drawPlan();
+      const update = applyReviewRevision(planSeen, review, () => {
+        const previousPlan = plan;
+        const wasWorking = !!plan && (plan.status === "working" || plan.status === "thinking");
+        const newReview = !!review && (!plan || plan.id !== review.id);
+        // Proposal ids can recur in a later review; carrying a coordinate across
+        // that boundary would make a new proposal inherit an old decision.
+        if (newReview) {
+          movedGhosts.clear(); planCut = new Set(); planAt = 0; planSelectedId = null;
+        }
+        planCut = reconcilePlanCutKeys(previousPlan, review, planCut);
+        // A review that has been answered is over: it stays on the server so the
+        // command waiting on it can read the brief, but there is nothing left to
+        // show and reopening the panel over a decision already sent would be a
+        // question asked twice.
+        plan = review && (["working", "thinking", "ready", "partial", "error"].includes(review.status))
+          ? review : null;
+        // A new review starts with everything accepted. Rejecting is the
+        // deliberate act; requiring a click per block to approve a plan you
+        // agree with would make the common case the expensive one.
+        /* working -> ready is when the panel gains its content and the sheet
+           gains its ghosts. Both change what a fit should produce, so this is
+           the moment to compute one. */
+        if (plan && (plan.status === "ready" || plan.status === "partial") && wasWorking) fitAfterSettling();
+        // A second review means the session came back here, so the note telling
+        // them to leave has been answered by events.
+        if (plan) { clearHandoff(); setPlanOpen(true); }
+        syncPlanProjection();
+        renderPlan();
+        drawPlan();
+      });
+      if (!update.changed) return;
+      planSeen = update.stamp;
     } catch { /* the server is restarting, or gone. Ask again shortly. */ }
   }
   /* Started by boot rather than at parse. The panel names the blocks a plan
      touches, and a first answer that arrived before the sheet did listed
      their ids instead — the review would then have been read against a
      document the browser had not loaded yet. */
-  function startPlanPolling() {
-    setInterval(pollPlan, 2000);
-    pollPlan();
-  }
+  const planPoller = createPlanPollScheduler({ poll: pollPlan, review: () => plan });
+  function startPlanPolling() { planPoller.start(); }
+  window.addEventListener("pagehide", () => planPoller.stop());
+  window.addEventListener("pageshow", () => startPlanPolling());
 
   // The chips live in two places now — beside the mark when there are one or
   // two, in the panel when there are more — so the handler is on the canvas
   // and keys off the chip itself.
   canvas.addEventListener("click", (ev) => {
+    const planToggle = ev.target.closest("[data-plan-toggle]");
+    if (planToggle) {
+      ev.preventDefault(); ev.stopPropagation();
+      const impactKey = planToggle.dataset.impactKey;
+      const owner = planToggle.closest(".node");
+      const focusToken = capturePlanFocus(planToggle);
+      if (owner && owner.dataset.planType) {
+        focusTemporaryPlanRepresentation(impactKey, owner.dataset.id, true);
+      }
+      planDecide(planToggle.dataset.planToggle === "cut", impactKey, focusToken);
+      return;
+    }
+    const planAction = ev.target.closest("[data-plan-action]");
+    if (planAction) {
+      ev.stopPropagation();
+      const activation = handleTemporaryActivation(ev, planAction, {
+        now: Date.now(), lastClick: lastNodeClick,
+      }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, true),
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+        selectRepresentation: (id) => {
+          focusTemporaryPlanRepresentation("", id, false);
+          redrawPlanWithFocus({ kind: "action", id });
+        },
+      });
+      lastNodeClick = activation.lastClick;
+      return;
+    }
     if (ev.target.closest("#name-btn")) { nameTheChanges(); return; }
     const chip = ev.target.closest(".change-chip");
     if (!chip) return;
@@ -3106,6 +3338,32 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     if (dragTemp) add("path", { d: curve(dragTemp), class: "wire temp" });
 
+    /* Removed lines sit over their persisted stroke. They are never deleted:
+       the coral broken overlay is the proposal, and cutting its owning impact
+       restores the ordinary line underneath. */
+    if (plan && (plan.status === "ready" || plan.status === "partial")) {
+      for (const disconnection of planProjection.annotations.disconnections) {
+        const visible = projectedEdgeEndpoints(disconnection, viewRoot, S.nodes, planProjection);
+        if (!visible) continue;
+        const a = viewNode(visible.from), b = viewNode(visible.to);
+        const p = between(a, b);
+        if (!p) continue;
+        const attrs = {
+          d: curve(p), class: "wire plan-disconnection",
+          "data-impact-key": disconnection.impactKey,
+          "data-cut": String(planCut.has(disconnection.impactKey)),
+        };
+        add("path", attrs);
+        const hit = add("path", {
+          d: attrs.d, class: "wire-hit plan-wire-hit",
+          "data-impact-key": disconnection.impactKey,
+        });
+        hit.addEventListener("mousedown", (ev) => {
+          ev.preventDefault(); ev.stopPropagation(); selectPlanImpact(disconnection.impactKey);
+        });
+      }
+    }
+
     /* The lines a plan would draw. Last, so a proposal sits over the drawing
        it is proposing to change rather than under it, and outside the splay
        and merge logic above — a proposal is never one of several lines between
@@ -3113,24 +3371,32 @@ import { createRolledLoader } from "./rolled-loader.js";
        Either end may be a ghost or a real block; an end that resolves to
        neither is skipped, because a line to nowhere says something the plan
        did not. */
-    if (plan && plan.status === "ready") {
+    if (plan && (plan.status === "ready" || plan.status === "partial")) {
       const end = (id) => {
         const g = ghostAt.get(id);
         if (g) return { id: id, x: g.x, y: g.y };
         const here = levelAncestor(id);
-        return here ? node(here) : null;
+        return here ? viewNode(here) : null;
       };
-      for (const c of plan.delta.connections) {
-        const a = end(c.from), b = end(c.to);
+      for (const c of planProjection.edges) {
+        const visible = projectedEdgeEndpoints(c, viewRoot, S.nodes, planProjection);
+        if (!visible) continue;
+        const a = end(visible.from), b = end(visible.to);
         if (!a || !b || a.id === b.id) continue;
         const p = between(a, b);
         if (!p) continue;
         add("path", {
           d: curve(p), class: "wire",
           "data-proposed": "true",
-          // So a step can light the one line it is about.
-          "data-pair": c.from + " " + c.to,
-          "data-cut": String(planCut.has(planKey("edge", c.from, c.to))),
+          "data-impact-key": c.impactKey,
+          "data-cut": String(planCut.has(c.impactKey)),
+        });
+        const hit = add("path", {
+          d: curve(p), class: "wire-hit plan-wire-hit",
+          "data-impact-key": c.impactKey,
+        });
+        hit.addEventListener("mousedown", (ev) => {
+          ev.preventDefault(); ev.stopPropagation(); selectPlanImpact(c.impactKey);
         });
       }
     }
@@ -3773,6 +4039,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   // to git: the user commits their code and the updated system.json/
   // layout.json together, themselves, outside the app.
   function acceptRefreshItem(i) {
+    if (viewRoot && temporaryNode(viewRoot)) return;
     const item = refreshQueue[i];
     if (!item) return;
     undoStack.push(snapshot());
@@ -4021,7 +4288,12 @@ import { createRolledLoader } from "./rolled-loader.js";
      instead of inventing a second vocabulary. */
   function goToView(id) {
     camByView.set(viewRoot || "", { x: pan.x, y: pan.y, z: zoom });
-    viewRoot = id || null;
+    const navigation = navigatePlanState({
+      viewRoot, selectedId: planSelectedId, cutKeys: planCut,
+    }, id);
+    viewRoot = navigation.viewRoot;
+    planSelectedId = navigation.selectedId;
+    planCut = navigation.cutKeys;
     render();                          // from here, currentLevelNodes() is the new level
     // Where you left it wins over where the content is: a view you have
     // already arranged is a view you recognise.
@@ -4086,7 +4358,11 @@ import { createRolledLoader } from "./rolled-loader.js";
     const right = toWorldX(canvas.clientWidth - 24) - NODE_W;
     const bottom = toWorldY(canvas.clientHeight - 110);
 
-    const free = (x, y) => !currentLevelNodes().some((n) => Math.abs(n.x - x) < NODE_W - 6 && Math.abs(n.y - y) < 106);
+    const occupied = currentLevelNodes().filter(isPersistedNode)
+      .map((n) => ({ x: n.x, y: n.y }));
+    ghostAt.forEach((position) => occupied.push(position));
+    const free = (x, y) => !occupied.some((n) =>
+      Math.abs(n.x - x) < NODE_W - 6 && Math.abs(n.y - y) < 106);
     const onSheet = (x, y) => x >= left - 8 && x <= right + 8 && y >= top - 8 && y <= bottom + 8;
 
     const tries = [];
@@ -4106,19 +4382,25 @@ import { createRolledLoader } from "./rolled-loader.js";
       if (onSheet(x, y) && free(x, y)) return { x: Math.round(x), y: Math.round(y) };
     }
     // Sheet is full — start a fresh row underneath.
-    const maxY = currentLevelNodes().reduce((m, n) => Math.max(m, n.y), top);
+    const maxY = occupied.reduce((m, n) => Math.max(m, n.y), top);
     return { x: Math.round(left), y: Math.round(maxY + ROW) };
   }
 
   function applyAction(act) {
     if (!act) return;
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [] }, S.nodes, planProjection)) return;
 
-    if (act.kind === "select") { select("node", act.target); focusIntent(); return; }
+    if (act.kind === "select") {
+      if (!persistentGraphActionAllowed({ viewRoot, ids: [act.target] }, S.nodes, planProjection)) return;
+      select("node", act.target); focusIntent(); return;
+    }
     if (act.kind === "selectEdge") { select("edge", act.target); return; }
 
     if (act.wire) { connect(act.wire.from, act.wire.to, act.wire.label); render(); return; }
 
     if (act.group) {
+      const members = [...(act.group.ids || []), act.group.near].filter(Boolean);
+      if (!persistentGraphActionAllowed({ viewRoot, ids: members }, S.nodes, planProjection)) return;
       const spot = freeSpot(act.group.near);
       const g = {
         id: slug(act.group.name, nodeIds()), kind: "Group", name: act.group.name,
@@ -4143,6 +4425,9 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     if (act.add) {
       const a = act.add;
+      if (!persistentGraphActionAllowed({
+        viewRoot, ids: a.from ? [a.from] : [],
+      }, S.nodes, planProjection)) return;
       const spot = freeSpot(a.from);
       const n = { id: slug(a.name, nodeIds()), kind: (KINDS[a.kind] || {}).label || a.kind,
                   name: a.name, intent: a.intent, x: spot.x, y: spot.y };
@@ -4155,11 +4440,14 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function connect(from, to, label, transient) {
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [from, to] }, S.nodes, planProjection)) return false;
     applyMove({ t: "connect", from: from, to: to, label: label || "" }, { transient: !!transient });
+    return true;
   }
 
   function select(type, id, opts) {
     S.sel = { type: type, id: id };
+    planSelectedId = null;
     hunkView = null;
     if (!opts || opts.panel !== false) inspectorOpen = true;
     render();
@@ -4301,6 +4589,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function dropKind(kind, x, y) {
+    if (!persistentGraphActionAllowed({ viewRoot, ids: [] }, S.nodes, planProjection)) return;
     const n = { id: slug(KINDS[kind].label, nodeIds()), kind: KINDS[kind].label,
                 name: KINDS[kind].label, intent: "", x: Math.round(x), y: Math.round(y) };
     if (viewRoot) n.parent = viewRoot;
@@ -4337,6 +4626,21 @@ import { createRolledLoader } from "./rolled-loader.js";
   const DBLCLICK_MS = 400;
 
   canvas.addEventListener("mousedown", (ev) => {
+    const pressedPlanToggle = ev.target.closest("[data-plan-toggle]");
+    if (pressedPlanToggle) {
+      ev.stopPropagation();
+      const owner = pressedPlanToggle.closest(".node");
+      if (owner && owner.dataset.planType) {
+        focusTemporaryPlanRepresentation(pressedPlanToggle.dataset.impactKey, owner.dataset.id, false);
+      }
+      return;
+    }
+    const annotationEl = ev.target.closest(".plan-annotation");
+    if (annotationEl) {
+      ev.preventDefault(); ev.stopPropagation();
+      selectPlanImpact(annotationEl.dataset.impactKey);
+      return;
+    }
     // A name in the "holds" line is a way in, not a handle. Taken before
     // anything else so pressing one never starts dragging the card it sits
     // on — mousedown, not click, because the drag would already have begun
@@ -4361,6 +4665,7 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     const portEl = ev.target.closest(".port");
     const nodeEl = ev.target.closest(".node");
+    const planActionEl = ev.target.closest("[data-plan-action]");
     const r = canvas.getBoundingClientRect();
     const wx = toWorldX(ev.clientX - r.left);
     const wy = toWorldY(ev.clientY - r.top);
@@ -4390,13 +4695,25 @@ import { createRolledLoader } from "./rolled-loader.js";
       }
     }
 
-    if (nodeEl && nodeEl.dataset.proposed === "true") {
+    if (nodeEl && nodeEl.dataset.planType) {
+      if (!planActionEl) return;
+      const activation = handleTemporaryActivation(ev, planActionEl, {
+        now: Date.now(), lastClick: lastNodeClick,
+      }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, false),
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+      });
+      lastNodeClick = activation.lastClick;
+      if (activation.action === "enter") return;
+      if (nodeEl.dataset.proposed !== "true") return;
       const p = ghostAt.get(nodeEl.dataset.id);
       if (!p) return;
       ev.preventDefault();
       mode = "ghost";
       start = { id: nodeEl.dataset.id, dx: wx - p.x, dy: wy - p.y };
-      nodeEl.classList.add("dragging");
+      const fresh = world.querySelector('.node[data-id="' + nodeEl.dataset.id + '"]');
+      if (fresh) fresh.classList.add("dragging");
       return;
     }
 
@@ -4405,7 +4722,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       const now = Date.now();
       if (lastNodeClick && lastNodeClick.id === n.id && now - lastNodeClick.time < DBLCLICK_MS) {
         lastNodeClick = null;
-        enterNode(n.id);
+        enterNode(nodeEl.dataset.id);
         return;
       }
       lastNodeClick = { id: n.id, time: now };
@@ -4475,7 +4792,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   window.addEventListener("mouseup", (ev) => {
     if (mode === "wire") {
       const over = ev.target.closest(".node");
-      if (over && over.dataset.id !== start.from) connect(start.from, over.dataset.id, "");
+      if (over && !over.dataset.planType && over.dataset.id !== start.from) connect(start.from, over.dataset.id, "");
       dragTemp = null;
       mode = null; start = null;
       render();
@@ -4513,6 +4830,24 @@ import { createRolledLoader } from "./rolled-loader.js";
        a third in the masthead, because a way out that you have to remember
        is not a way out for the person who most needs one. */
     const typing = ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA";
+    const planAction = ev.target.closest && ev.target.closest("[data-plan-action]");
+    if (!typing && planAction) {
+      const activation = handleTemporaryActivation(ev, planAction, {
+        lastClick: lastNodeClick,
+      }, {
+        focus: (impactKey, id) => focusTemporaryPlanRepresentation(impactKey, id, true),
+        enter: (id) => enterNode(id),
+        select: (impactKey, id) => selectPlanImpact(impactKey, id),
+      });
+      if (activation.handled) return;
+    }
+    const focusedNode = ev.target.classList && ev.target.classList.contains("node") ? ev.target : null;
+    if (!typing && ev.key === "Enter" && focusedNode) {
+      ev.preventDefault();
+      if (focusedNode.dataset.enterable === "true") enterNode(focusedNode.dataset.id);
+      else if (focusedNode.dataset.impactKey) selectPlanImpact(focusedNode.dataset.impactKey);
+      return;
+    }
     if (!typing && (ev.metaKey || ev.ctrlKey) && ev.code === "Digit0") {
       ev.preventDefault();
       // Zoom about the middle of the canvas, not the origin — the sheet
@@ -4532,8 +4867,29 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     if (ev.key !== "Backspace" && ev.key !== "Delete") return;
     const t = ev.target.tagName;
-    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || ev.target.isContentEditable) return;
+    const boundary = handlePlanDeleteBoundary(ev, {
+      persistedSelection: S.sel,
+      planSelectedId,
+      inspectorOpen,
+      hunkView,
+    });
+    if (boundary.handled) {
+      S.sel = boundary.state.persistedSelection;
+      planSelectedId = boundary.state.planSelectedId;
+      inspectorOpen = boundary.state.inspectorOpen;
+      hunkView = boundary.state.hunkView;
+      renderInspector();
+      return;
+    }
     if (!S.sel) return;
+    if (S.sel.type === "node" && !persistentGraphActionAllowed({
+      viewRoot, ids: [S.sel.id],
+    }, S.nodes, planProjection)) {
+      S.sel = null;
+      render();
+      return;
+    }
     ev.preventDefault();
     applyMove(S.sel.type === "node"
       ? { t: "removeNode", id: S.sel.id }
@@ -4766,7 +5122,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     splashEl.className = "splash";
     splashEl.innerHTML =
       '<canvas class="splash-ball" id="splash-ball" aria-hidden="true"></canvas>' +
-      '<p class="splash-say" id="splash-say" role="status" aria-live="polite"></p>' +
+      '<p class="splash-say" id="splash-say"></p>' +
       '<p class="splash-sub" id="splash-sub"></p>';
     canvas.appendChild(splashEl);
 
@@ -4971,14 +5327,18 @@ import { createRolledLoader } from "./rolled-loader.js";
     clearRetry();
     const kept = sent ? sent.kept : 0;
     const cut = sent ? sent.cut : 0;
+    const skipped = !!(sent && sent.skipped);
     handoffEl = document.createElement("div");
     handoffEl.className = "handoff";
-    handoffEl.setAttribute("role", "status");
+    planStatusEl.textContent = skipped
+      ? "Review skipped. Claude Code continues with the plan as written."
+      : "Plan review sent. " + kept + " kept" + (cut ? ", " + cut + " cut." : ".");
     handoffEl.innerHTML =
       '<span class="handoff-say">Sent</span>' +
-      '<span class="handoff-count">' + kept + " kept" +
-        (cut ? " · " + cut + " cut" : "") + "</span>" +
-      '<span class="handoff-go">Back to Claude Code — it builds from here.</span>' +
+      '<span class="handoff-count">' + (skipped ? "Review skipped" : kept + " kept" +
+        (cut ? " · " + cut + " cut" : "")) + "</span>" +
+      '<span class="handoff-go">Back to Claude Code — it ' +
+        (skipped ? "continues with the plan as written." : "builds from here.") + "</span>" +
       '<button class="handoff-x" aria-label="Dismiss">×</button>';
     canvas.appendChild(handoffEl);
     handoffEl.querySelector(".handoff-x").addEventListener("click", clearHandoff);
@@ -5141,7 +5501,8 @@ import { createRolledLoader } from "./rolled-loader.js";
         review = (await planRes.json()).review;
       } catch (e) {}
 
-      const reviewLive = !!review && (review.status === "thinking" || review.status === "ready");
+      const reviewLive = !!review &&
+        ["working", "thinking", "ready", "partial", "error"].includes(review.status);
       const hasCode = !!(dirs.dirs && dirs.dirs.length);
       if (reviewLive) {
         /* Nothing. Every splash below says some version of "there is nothing to
@@ -5278,7 +5639,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (S.sel) { S.sel = null; render(); return; }
 
     if (!viewRoot) return;                        // already at the top
-    const here = node(viewRoot);
+    const here = viewNode(viewRoot);
     goToView(here && here.parent ? here.parent : null);
   });
 

@@ -32,6 +32,10 @@ test("the three version strings agree", () => {
   );
 });
 
+test("the adaptive impact review release is 0.4.0", () => {
+  assert.equal(read("package.json").version, "0.4.0");
+});
+
 test("the version is a plain three-part number", () => {
   // `/plugin update` compares these, so a suffix or a stray "v" is a version
   // that never looks newer than the one already installed.

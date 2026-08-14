@@ -36,6 +36,7 @@
   </header>
 
   <main class="canvas" id="canvas">
+    <p class="sr-only" id="plan-status" role="status" aria-live="polite" aria-atomic="true"></p>
     <div class="world" id="world">
       <svg class="wires" id="wires"></svg>
       <svg class="wires wires-top" id="wire-labels"></svg>
@@ -86,18 +87,19 @@
     <aside class="planpanel" id="planpanel" aria-hidden="true">
       <header class="plan-grip" id="plan-grip">
         <span class="plan-ttl">Claude's plan</span>
-        <span class="plan-nav">
-          <button id="plan-prev" type="button" aria-label="Previous">◀</button>
-          <button id="plan-next" type="button" aria-label="Next">▶</button>
+        <span class="plan-nav" id="plan-nav">
+          <button id="plan-prev" type="button" aria-label="Previous plan change">◀</button>
+          <button id="plan-next" type="button" aria-label="Next plan change">▶</button>
         </span>
-        <span class="plan-of" id="plan-of" role="status" aria-live="polite" aria-atomic="true"></span>
+        <span class="plan-of" id="plan-of"></span>
         <button class="plan-x" id="plan-close" aria-label="Close">×</button>
       </header>
       <div class="plan-note" id="plan-note"></div>
       <div class="plan-loading" id="plan-loading" hidden>
         <canvas class="plan-loading-ball" id="plan-loading-ball" aria-hidden="true"></canvas>
-        <p role="status" aria-live="polite">Reading the plan against your sheet…</p>
+        <p id="plan-progress"></p>
       </div>
+      <p class="plan-warning" id="plan-warning" hidden></p>
       <div class="plan-body" id="plan-body">
         <div class="plan-row1">
           <span class="plan-mark" id="plan-mark"></span>
@@ -107,15 +109,26 @@
         </div>
         <p class="plan-why" id="plan-why"></p>
         <p class="plan-detail" id="plan-detail"></p>
+        <!-- Literal evidence stays in the review panel. Turning file paths or
+             symbols into boxes would invent another graph level the plan did
+             not justify. -->
+        <div class="plan-evidence" id="plan-evidence"></div>
         <p class="plan-reach" id="plan-reach"></p>
         <p class="plan-quote" id="plan-quote"></p>
       </div>
-      <footer class="plan-foot">
-        <button class="ghost-btn" id="plan-cut" type="button">Cut</button>
-        <button class="ghost-btn" id="plan-keep" type="button">Keep</button>
-        <button class="ghost-btn primary" id="plan-approve" type="button">Approve</button>
+      <footer class="plan-foot" id="plan-foot">
+        <button class="ghost-btn" id="plan-cut" type="button"
+                aria-label="Cut this plan change">Cut</button>
+        <button class="ghost-btn" id="plan-keep" type="button"
+                aria-label="Keep this plan change">Keep</button>
+        <button class="ghost-btn primary" id="plan-approve" type="button"
+                aria-label="Approve reviewed plan changes">Approve</button>
+        <button class="ghost-btn primary" id="plan-retry" type="button"
+                aria-label="Retry plan review" hidden>Retry</button>
+        <button class="ghost-btn" id="plan-skip" type="button"
+                aria-label="Skip plan review" hidden>Skip</button>
       </footer>
-      <div class="plan-progress" id="plan-progress" aria-hidden="true">
+      <div class="plan-progress" id="plan-step-progress" aria-hidden="true">
         <span class="plan-dots" id="plan-dots"></span>
       </div>
     </aside>
