@@ -14,10 +14,6 @@
     --wash-2:     #C7D6D2;
     --pine:       #1F6F6B;
     --pine-soft:  #7FA6A2;
-    --plan:       #5147A6;
-    --plan-soft:  #A9A4DA;
-    --plan-wash:  #EFEEFA;
-    --plan-cut:   #B85045;
 
     /* severity — semantic only, never decoration */
     --risk:       #C2402C;
@@ -59,10 +55,6 @@
      [hidden] { display: none }, which made the hidden attribute decorative on
      the panels below. This puts it back. */
   [hidden] { display: none !important; }
-  .sr-only {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
-  }
 
   * { box-sizing: border-box; }
 
@@ -1228,76 +1220,6 @@
 
   /* ---------- the plan review ---------- */
 
-  /* A review is a transparent drafting layer, not another kind of system
-     component. Indigo is reserved for that layer; coral means the plan would
-     take something away. The little paper-slip controls are the one signature
-     device, repeated at every representation of the same impact. */
-  .plan-count {
-    position: absolute; right: -2px; top: -17px; z-index: 3;
-    padding: 1px 7px 2px; white-space: nowrap;
-    font-family: var(--mono); font-size: 9px; letter-spacing: .04em;
-    color: var(--paper); background: var(--plan);
-    border: 2px solid var(--ink); border-bottom: 0;
-    border-radius: 4px 4px 0 0;
-  }
-  .node.plan-card {
-    border: 2px dashed var(--plan); box-shadow: none;
-    background: linear-gradient(90deg, var(--plan-wash) 0 8px, var(--paper) 8px);
-    cursor: pointer;
-  }
-  .node.plan-card .node-kind { color: var(--plan); }
-  .node.plan-group {
-    border-color: var(--plan); box-shadow: 5px -5px 0 var(--plan-wash), 0 3px 0 var(--plan);
-    background: color-mix(in oklab, var(--plan-wash) 48%, var(--paper));
-    cursor: pointer;
-  }
-  .node.plan-group::before { border-color: var(--plan); background: var(--plan-wash); }
-  .node.plan-addition { border-color: var(--plan); }
-  .node.plan-selected {
-    outline: 3px solid color-mix(in oklab, var(--plan) 38%, transparent);
-    outline-offset: 3px;
-  }
-  .plan-node-action {
-    display: block; width: 100%; padding: 0; border: 0; border-radius: 3px;
-    background: transparent; color: inherit; text-align: left; cursor: inherit;
-    font: inherit;
-  }
-  .plan-node-action:focus-visible {
-    outline: 3px solid var(--plan); outline-offset: 3px;
-  }
-  .plan-node-action .node-name, .plan-node-action .node-intent { display: block; }
-  .node.plan-removal[data-removal-cut="false"] {
-    opacity: .62; border-color: var(--plan-cut); box-shadow: 0 3px 0 var(--plan-cut);
-  }
-  .node.plan-removal[data-removal-cut="false"] .node-name {
-    color: var(--plan-cut); text-decoration: line-through 2px;
-  }
-  .node.plan-responsibility[data-responsibility-cut="false"] {
-    outline: 2px dashed var(--plan); outline-offset: 3px;
-  }
-  .plan-annotation {
-    display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 4px;
-    margin: 0 8px 8px; padding: 5px 6px;
-    background: var(--plan-wash); border-left: 3px solid var(--plan);
-    font-family: var(--mono); font-size: 9px; color: var(--plan);
-  }
-  .node.plan-removal .plan-annotation { border-left-color: var(--plan-cut); }
-  .plan-annotation button, .plan-card-controls button {
-    padding: 2px 5px; border: 1px solid var(--plan-soft); border-radius: 3px;
-    background: var(--paper); color: var(--plan); cursor: pointer;
-    font: 9px/1.2 var(--mono);
-  }
-  .plan-annotation button[aria-pressed="true"],
-  .plan-card-controls button[aria-pressed="true"] {
-    color: var(--paper); background: var(--plan); border-color: var(--plan);
-  }
-  .plan-card-controls {
-    display: flex; gap: 5px; padding: 0 10px 10px;
-  }
-  .node[data-cut="true"] .plan-card-controls button[aria-pressed="true"] {
-    background: var(--plan-cut); border-color: var(--plan-cut);
-  }
-
   /* A proposed block is drawn as a block that is not there yet: the same
      geometry, hollowed out. Dashes rather than opacity alone, because opacity
      alone reads as "disabled" — something you may not touch — and this is the
@@ -1313,13 +1235,8 @@
   .node[data-proposed="true"] .node-name { opacity: .75; }
   .node[data-proposed="true"][data-cut="true"] { opacity: .28; }
 
-  .wires path[data-proposed="true"] { stroke: var(--plan); stroke-dasharray: 6 5; opacity: .7; }
+  .wires path[data-proposed="true"] { stroke-dasharray: 6 5; opacity: .7; }
   .wires path[data-proposed="true"][data-cut="true"] { opacity: .2; }
-  .wire.plan-disconnection {
-    stroke: var(--plan-cut); stroke-width: 4.5; stroke-dasharray: 2 6;
-    opacity: .82; pointer-events: none;
-  }
-  .wire.plan-disconnection[data-cut="true"] { opacity: .12; }
 
   /* Bottom-right: clear of the state door and the add button on the left, and
      clear of the bulb's corner above. The one panel that opens itself, so it
@@ -1353,20 +1270,23 @@
   }
 
   .plan-grip {
-    display: flex; align-items: center; gap: 7px;
+    display: flex; align-items: center; gap: 9px;
     padding: 8px 11px; border-bottom: 1px solid var(--rule, rgba(27,27,25,.12));
     cursor: grab; flex: none;
   }
   .plan-grip:active { cursor: grabbing; }
   .plan-ttl {
     font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--ink-faint); margin-right: auto;
+    text-transform: uppercase; color: var(--ink-faint);
   }
-  /* The dots are decision history rather than navigation. Their own bottom
-     row can wrap without moving the arrows someone is repeatedly pressing. */
+  /* Wraps, and may shrink. A flex item defaults to min-width:auto, so a long
+     plan grew this row past the panel and carried the counter and the close
+     button out with it — at 26 proposals the ✕ sat 32px beyond the edge and
+     could not be clicked. Wrapping costs a second row of dots; the alternative
+     costs the way out of the panel. */
   .plan-dots {
-    display: flex; justify-content: center; gap: 5px; flex-wrap: wrap;
-    width: 100%; min-width: 0; row-gap: 4px;
+    display: flex; gap: 5px; flex-wrap: wrap;
+    flex: 0 1 auto; min-width: 0; row-gap: 4px;
   }
   /* The dots carry what you decided, not only where you are: filled for kept,
      hollow-grey for cut. What you have already answered stays legible without
@@ -1380,7 +1300,7 @@
   .plan-dot.cut { background: var(--ink-faint); border-color: var(--ink-faint); opacity: .5; }
   .plan-dot.now { background: var(--pine); border-color: var(--pine); transform: scale(1.2); }
   .plan-of {
-    font-family: var(--mono); font-size: 11px;
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
     color: var(--ink-faint); font-variant-numeric: tabular-nums;
   }
   .plan-x {
@@ -1394,10 +1314,8 @@
      stays, so it is still draggable and still says how far through you are. */
   .planpanel[data-collapsed="true"] .plan-note,
   .planpanel[data-collapsed="true"] .plan-loading,
-  .planpanel[data-collapsed="true"] .plan-warning,
   .planpanel[data-collapsed="true"] .plan-body,
-  .planpanel[data-collapsed="true"] .plan-foot,
-  .planpanel[data-collapsed="true"] .plan-progress { display: none; }
+  .planpanel[data-collapsed="true"] .plan-foot { display: none; }
   .planpanel[data-collapsed="true"] .plan-grip { border-bottom: 0; }
   .planpanel[data-collapsed="true"] { width: auto; min-width: 240px; }
 
@@ -1413,12 +1331,6 @@
   .plan-loading p {
     margin: 0; font-family: var(--mono); font-size: 12px;
     color: var(--ink-soft); letter-spacing: .02em;
-  }
-  .plan-warning {
-    margin: 0; padding: 8px 14px;
-    border-bottom: 1px solid color-mix(in oklab, var(--plan) 35%, var(--grid));
-    background: var(--plan-wash); color: var(--ink-soft);
-    font: 11px/1.45 var(--mono);
   }
   .plan-body { padding: 11px 14px 2px; overflow-y: auto; min-height: 0; }
   .plan-row1 { display: flex; align-items: baseline; gap: 8px; }
@@ -1436,20 +1348,6 @@
     white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
   }
   .plan-detail:empty { display: none; }
-  .plan-evidence { margin-top: 8px; }
-  .plan-evidence:empty { display: none; }
-  .plan-evidence-row {
-    padding: 7px 0; border-top: 1px solid var(--grid);
-  }
-  .plan-evidence-row p {
-    margin: 3px 0; overflow-wrap: anywhere;
-    font-size: 12px; line-height: 1.4; color: var(--ink-soft);
-  }
-  .plan-evidence-row b { color: var(--plan); font-family: var(--mono); }
-  .plan-evidence-row code {
-    font: 11px/1.35 var(--mono); color: var(--ink);
-    background: var(--plan-wash); padding: 1px 4px; border-radius: 2px;
-  }
   .plan-files-label {
     display: block; font-family: var(--mono); font-size: 10px;
     letter-spacing: .08em; text-transform: uppercase;
@@ -1512,13 +1410,9 @@
   .plan-foot[data-stage="step"] #plan-approve,
   .plan-foot[data-stage="summary"] #plan-keep,
   .plan-foot[data-stage="summary"] #plan-cut,
-  .plan-foot[data-stage="working"] #plan-keep,
-  .plan-foot[data-stage="working"] #plan-cut { display: none; }
-  .plan-progress {
-    display: flex; align-items: center; min-height: 7px;
-    padding: 0 14px 11px; flex: none;
-  }
-  .plan-nav { display: flex; gap: 5px; flex: none; }
+  .plan-foot[data-stage="thinking"] #plan-keep,
+  .plan-foot[data-stage="thinking"] #plan-cut { display: none; }
+  .plan-nav { margin-left: auto; display: flex; gap: 5px; }
   .plan-nav button {
     font: inherit; width: 30px; height: 28px; cursor: pointer;
     border: 1.5px solid var(--ink); border-radius: 5px; background: var(--paper);

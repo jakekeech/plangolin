@@ -15,6 +15,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jakekeech/plangolin/actions/workflows/test.yml"><img src="https://github.com/jakekeech/plangolin/actions/workflows/test.yml/badge.svg" alt="tests" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1F6F6B" alt="MIT licence" /></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-1F6F6B" alt="Node 20 or newer" />
   <img src="https://img.shields.io/badge/runtime_dependencies-0-1F6F6B" alt="No runtime dependencies" />
@@ -74,21 +75,15 @@ setup: no separate npm install, API key, account, or build step.
   <em>A plan to add rate limiting to Express, drawn against Express's own code.</em>
 </p>
 
-Structural changes stay at the system level. Internal work appears inside the
-most specific affected component. Tests, documentation, rollout, and other
-supporting details remain in the plan instead of becoming extra graph nodes.
-Every plan item must belong to one of those visible decisions. If the first
-placement is incomplete, plangolin retries the rejected items once with the
-valid component choices. If anything still cannot be placed safely, the panel
-keeps the existing map visible and offers Retry or Skip; Approve is unavailable.
+Implementation details stay visible without competing for the same attention.
+At the end, plangolin counts the plan steps that change nothing about the shape
+of the system—the part of a long plan you are entitled to skim.
 
 ## What you are reviewing
 
 **Solid blocks** are parts of the system that already exist. **Dashed blocks
 and lines** are what the plan proposes to add. A travelling dash shows which
-way a proposed connection runs. A planned-change badge on a component means
-there is internal work inside it; double-click the component to open that
-nested review.
+way a proposed connection runs.
 
 The current proposal is lit; everything else dims. It dims rather than
 disappearing because the rest of the system is what makes the proposed change
@@ -100,7 +95,7 @@ mean anything.
 | `K` / `C` | Keep or cut the current proposal |
 | **?** | Show the request that started the plan |
 | **drag the title bar** | Move the review panel |
-| **Details** | Check rationale, evidence, and the plan's original wording |
+| **▸ what the plan said** | Check the proposal against the plan's own wording |
 
 Nothing opens a browser tab automatically. Set `PLANGOLIN_OPEN=1` if you want
 the review to open itself.
@@ -199,22 +194,20 @@ no account and no machine detail — deleting the file makes a new one. It exist
 to rate limit and to answer "did anyone run this twice". There are no accounts,
 no tokens and no database.
 
-When the network or model is unavailable, plangolin keeps the existing system
-map visible and offers Retry or Skip. Unusable model output is dropped rather
-than allowed to corrupt the sheet.
+When the network or model is unavailable, plangolin keeps the structural
+grouping and states the reason. Unusable model output is dropped rather than
+allowed to corrupt the sheet.
 
 ## What it does not do
 
 Worth knowing before you rely on it:
 
-- **It reviews impact, not correctness.** It can show that a plan adds a block,
-  wires it to your database, or changes work inside an existing component. It
-  cannot tell you the implementation will work.
+- **It reviews shape, not correctness.** It can tell you a plan adds a block
+  and wires it to your database. It cannot tell you the plan will work.
 - **The mapping from plan steps to blocks is model-produced**, so a step can
-  land on the wrong block. Every proposal carries the plan's own wording under
-  **Details**, which is there so you can check it rather than trust it. A step
-  that cannot be placed after one constrained retry fails the review instead
-  of becoming a hidden or approvable decision.
+  land on the wrong block or on none. Every proposal carries the plan's own
+  wording under **▸ what the plan said**, which is there so you can check it
+  rather than trust it.
 - **A review waits ten minutes, then gives up** and lets the agent proceed with
   the plan as written. Nothing is a dead end, but an unanswered review is not a
   rejection.
@@ -239,7 +232,7 @@ with the plan-review workflow for attention:
 src/cli.js             plangolin, and plangolin review <file>
 src/review-command.js  starts a review and waits for the answer
 src/plan-steps.js      cuts a plan into numbered steps
-src/plan-impact.js     validates and places every step against the system
+src/plan-delta.js      maps those steps onto the shape of the system
 src/plan-brief.js      turns review decisions into agent instructions
 src/plan-store.js      one live review and everything that happens to it
 src/filegraph.js       every reference in the project

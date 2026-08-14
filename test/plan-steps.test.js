@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { splitSteps, stepCount } from "../src/plan-steps.js";
 
 test("a numbered list becomes one step per item", () => {
@@ -9,17 +8,6 @@ test("a numbered list becomes one step per item", () => {
   assert.deepEqual(steps.map((s) => s.n), [1, 2, 3]);
   assert.equal(steps[0].text, "Add a limiter");
   assert.equal(steps[2].text, "Test it");
-});
-
-test("numbered heading plans become one decision per numbered section", () => {
-  const source = readFileSync(new URL("./fixtures/pushpush-auth-plan.md", import.meta.url), "utf8");
-  const steps = splitSteps(source);
-  assert.equal(steps.length, 8);
-  assert.match(steps[0].text, /New component — user store/);
-  assert.match(steps[0].text, /DATABASE_URL/);
-  assert.match(steps[6].text, /Client session/);
-  assert.doesNotMatch(steps.map((step) => step.text).join("\n"), /Also proposed|Build the backend before/);
-  assert.equal(stepCount(source), 8);
 });
 
 test("a heading opens the step that follows it, rather than standing alone", () => {
@@ -67,13 +55,6 @@ test("a fenced code block never starts a step", () => {
   const steps = splitSteps("Add this:\n\n```js\n1. not a step\n- also not\n```\n\nThen commit.\n");
   assert.equal(steps.length, 2);
   assert.match(steps[0].text, /not a step/);
-  assert.equal(steps[1].text, "Then commit.");
-});
-
-test("a numbered heading inside a fenced code block does not start section mode", () => {
-  const steps = splitSteps("Add this:\n\n```md\n## 1. not a decision\n```\n\nThen commit.\n");
-  assert.equal(steps.length, 2);
-  assert.match(steps[0].text, /not a decision/);
   assert.equal(steps[1].text, "Then commit.");
 });
 

@@ -1,42 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  normalise,
-  expandAnchor,
-  docFromMoves,
-  emptyDoc,
-  load,
-  save,
-  saveIfEmpty,
-} from "../src/schema.js";
+import { normalise, expandAnchor, docFromMoves } from "../src/schema.js";
 
 const sys = (over) => ({ version: 1, nodes: [], edges: [], ...over });
-
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
-}
-
-function memoryWorkspace(write = null) {
-  const files = new Map();
-  return {
-    root: "/tmp/plangolin-schema-serialization",
-    files,
-    async read(file) { return files.get(file) ?? null; },
-    async write(file, contents) {
-      if (write) return write(files, file, contents);
-      files.set(file, contents);
-    },
-  };
-}
-
-const persistedDoc = (id, x) => ({
-  ...emptyDoc(),
-  nodes: [{ id, name: id, kind: "", intent: "", details: "" }],
-  layout: { [id]: { x, y: x + 1 } },
-});
 
 test("keeps anchor.paths", () => {
   const { doc } = normalise(sys({
@@ -152,67 +118,4 @@ test("moves that reference blocks that do not exist are dropped, not thrown", ()
 test("nothing to replay is an empty sheet, not a crash", () => {
   assert.deepEqual(docFromMoves(undefined).nodes, []);
   assert.deepEqual(docFromMoves([]).edges, []);
-});
-
-test("saveIfEmpty gives an already-started ordinary save first-writer ownership", async () => {
-  const browserWriteEntered = deferred();
-  const finishBrowserWrite = deferred();
-  const writes = [];
-  const ws = memoryWorkspace(async (files, file, contents) => {
-    const owner = contents.includes('"browser"') ? "browser" : "scan";
-    writes.push(`${owner}:${file}`);
-    if (owner === "browser" && file === "plangolin/system.json") {
-      browserWriteEntered.resolve();
-      await finishBrowserWrite.promise;
-    }
-    files.set(file, contents);
-  });
-
-  const browserSave = save(ws, persistedDoc("browser", 40));
-  await browserWriteEntered.promise;
-  const scanSave = saveIfEmpty(ws, persistedDoc("scan", 10));
-  finishBrowserWrite.resolve();
-
-  await browserSave;
-  assert.equal(await scanSave, false);
-  const { doc } = await load(ws);
-  assert.deepEqual(doc.nodes.map((node) => node.id), ["browser"]);
-  assert.deepEqual(doc.layout, { browser: { x: 40, y: 41 } });
-  assert.deepEqual(writes, [
-    "browser:plangolin/system.json",
-    "browser:plangolin/layout.json",
-  ]);
-});
-
-test("schema serialization never mixes system and layout across scan and browser saves", async () => {
-  const scanSystemWritten = deferred();
-  const finishScanSystem = deferred();
-  const writes = [];
-  const ws = memoryWorkspace(async (files, file, contents) => {
-    const owner = contents.includes('"browser"') ? "browser" : "scan";
-    writes.push(`${owner}:${file}`);
-    files.set(file, contents);
-    if (owner === "scan" && file === "plangolin/system.json") {
-      scanSystemWritten.resolve();
-      await finishScanSystem.promise;
-    }
-  });
-
-  const scanSave = saveIfEmpty(ws, persistedDoc("scan", 10));
-  await scanSystemWritten.promise;
-  const browserSave = save(ws, persistedDoc("browser", 40));
-  const reading = load(ws);
-  finishScanSystem.resolve();
-
-  assert.equal(await scanSave, true);
-  await browserSave;
-  const { doc } = await reading;
-  assert.deepEqual(doc.nodes.map((node) => node.id), ["browser"]);
-  assert.deepEqual(doc.layout, { browser: { x: 40, y: 41 } });
-  assert.deepEqual(writes, [
-    "scan:plangolin/system.json",
-    "scan:plangolin/layout.json",
-    "browser:plangolin/system.json",
-    "browser:plangolin/layout.json",
-  ]);
 });

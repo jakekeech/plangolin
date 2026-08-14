@@ -10,7 +10,6 @@ const MAX_STEPS = 60;
 const MAX_STEP_CHARS = 600;
 
 const HEADING = /^ {0,3}#{1,6}\s+(.*)$/;
-const NUMBERED_HEADING = /^ {0,3}(#{1,6})\s+(\d+)[.)]\s+(.*)$/;
 const ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/;
 const FENCE = /^\s*(```|~~~)/;
 
@@ -30,54 +29,7 @@ function strayFence(lines) {
   return open ? open.line : -1;
 }
 
-function splitNumberedSections(markdown) {
-  const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
-  const sections = [];
-  const stray = strayFence(lines);
-  let current = null;
-  let fence = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const f = i === stray ? null : line.match(FENCE);
-    if (f) {
-      if (fence && f[1][0] === fence[0]) fence = null;
-      else if (!fence) fence = f[1];
-      if (current) current.lines.push(line.trim());
-      continue;
-    }
-    if (fence) {
-      if (current) current.lines.push(line.trim());
-      continue;
-    }
-
-    const numbered = line.match(NUMBERED_HEADING);
-    const heading = line.match(HEADING);
-    if (numbered) {
-      if (current) sections.push(current);
-      current = { depth: numbered[1].length, lines: [numbered[3].trim()] };
-      continue;
-    }
-    if (current && heading && line.match(/^ {0,3}(#{1,6})/)?.[1].length <= current.depth) {
-      sections.push(current);
-      current = null;
-      continue;
-    }
-    if (current) current.lines.push(line.trim());
-  }
-
-  if (current) sections.push(current);
-  if (!sections.length) return null;
-  return sections
-    .map(({ lines }) => lines.join(" ").replace(/\s+/g, " ").trim())
-    .filter(Boolean)
-    .map((text) => text.slice(0, MAX_STEP_CHARS));
-}
-
 function splitAll(markdown) {
-  const numberedSections = splitNumberedSections(markdown);
-  if (numberedSections) return numberedSections;
-
   const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
   const steps = [];
   const stray = strayFence(lines);

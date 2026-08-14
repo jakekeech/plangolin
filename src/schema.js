@@ -10,26 +10,6 @@ export const SYSTEM_PATH = "plangolin/system.json";
 export const LAYOUT_PATH = "plangolin/layout.json";
 export const VERSION = 1;
 
-// Process-scoped serialization keeps one server's system/layout reads and
-// writes cohesive. Separate Plangolin processes are outside this in-memory
-// queue and remain governed by the one-server review invariant.
-const persistenceTurns = new Map();
-
-async function withPersistenceTurn(ws, operation) {
-  const key = typeof ws?.root === "string" ? ws.root : ws;
-  const previous = persistenceTurns.get(key) || Promise.resolve();
-  let release;
-  const turn = new Promise((resolve) => { release = resolve; });
-  persistenceTurns.set(key, turn);
-  await previous.catch(() => {});
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (persistenceTurns.get(key) === turn) persistenceTurns.delete(key);
-  }
-}
-
 export function emptyDoc() {
   return {
     version: VERSION,
@@ -219,7 +199,7 @@ export function expandAnchor(node, files) {
   return [];
 }
 
-async function loadUnlocked(ws) {
+export async function load(ws) {
   const rawSystem = await ws.read(SYSTEM_PATH);
   if (rawSystem === null) return { doc: emptyDoc(), warnings: [], fresh: true };
 
@@ -245,25 +225,8 @@ async function loadUnlocked(ws) {
   return { doc, warnings, fresh: false };
 }
 
-async function saveUnlocked(ws, doc) {
+export async function save(ws, doc) {
   const { layout, ...system } = doc;
   await ws.write(SYSTEM_PATH, JSON.stringify(system, null, 2) + "\n");
   await ws.write(LAYOUT_PATH, JSON.stringify(layout || {}, null, 2) + "\n");
-}
-
-export async function load(ws) {
-  return withPersistenceTurn(ws, () => loadUnlocked(ws));
-}
-
-export async function save(ws, doc) {
-  return withPersistenceTurn(ws, () => saveUnlocked(ws, doc));
-}
-
-export async function saveIfEmpty(ws, doc) {
-  return withPersistenceTurn(ws, async () => {
-    const { doc: current } = await loadUnlocked(ws);
-    if (current.nodes.length) return false;
-    await saveUnlocked(ws, doc);
-    return true;
-  });
 }

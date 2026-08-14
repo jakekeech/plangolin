@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # No install step, and none is missing: plangolin has no runtime or dev
+      # dependencies, and the tests are Node's own runner. If this ever needs
+      # an `npm ci`, something has been added that the README says is not here.
+      - run: npm test
