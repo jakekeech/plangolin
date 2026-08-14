@@ -69,12 +69,12 @@ function impact(overrides = {}) {
   };
 }
 
-test("scores incomplete placement as a retry and terminal placement failure", () => {
+test("scores terminal placement independently from whether a retry was attempted", () => {
   const score = scoreCase(corpusCase(), { impacts: [impact()] });
 
   assert.deepEqual(score.clientCoverage, { covered: 1, total: 2, ratio: 0.5 });
   assert.deepEqual(score.rawCoverage, { covered: 1, total: 2, ratio: 0.5 });
-  assert.deepEqual(score.retryRate, { retried: 1, total: 1, ratio: 1 });
+  assert.deepEqual(score.retryRate, { retried: 0, total: 1, ratio: 0 });
   assert.deepEqual(score.terminalPlacementFailures, { count: 1, total: 1, ratio: 1 });
 });
 
@@ -248,7 +248,104 @@ test("live runner crosses named and provisional contexts with high and medium ef
   assert.deepEqual(result.variants["provisional-high"].repeatAgreement, {
     agreements: 1, comparisons: 1, ratio: 1,
   });
+  assert.deepEqual(result.variants["provisional-high"].retryRate, {
+    retried: 0, total: 2, ratio: 0,
+  });
+  assert.deepEqual(result.variants["provisional-high"].terminalPlacementFailures, {
+    count: 0, total: 2, ratio: 0,
+  });
   assert.equal(result.decision, "not-evaluated", "fixture calls cannot enable the live gate");
+});
+
+test("live runner records a successful constrained repair as retry without terminal failure", async () => {
+  const calls = [];
+  const result = await runLiveEvaluation({
+    cases: [corpusCase()],
+    repeats: 2,
+    call: async ({ contextKind, effort, prompt }) => {
+      const retry = /previous placement was rejected/i.test(prompt);
+      calls.push({ contextKind, effort, retry });
+      const targetId = prompt.includes("group:auth") ? "group:auth" : "auth";
+      return {
+        parsed: { impacts: [impact({
+          targetId,
+          steps: retry ? [2] : [1],
+          title: retry ? "Place authentication tests" : "Update authentication",
+        })] },
+        appliedEffort: effort,
+        evidence: "live-model",
+      };
+    },
+  });
+
+  assert.equal(calls.length, 16);
+  assert.equal(calls.filter((entry) => entry.retry).length, 8);
+  for (const metrics of Object.values(result.variants)) {
+    assert.deepEqual(metrics.retryRate, { retried: 2, total: 2, ratio: 1 });
+    assert.deepEqual(metrics.terminalPlacementFailures, { count: 0, total: 2, ratio: 0 });
+  }
+  assert.deepEqual(result.evidence, {
+    verifiedLiveModelCalls: 16,
+    requiredLiveModelCalls: 16,
+  });
+  assert.equal(result.decision, "pass");
+});
+
+test("live runner stops after one invalid repair and records a terminal placement failure", async () => {
+  const terminalCase = corpusCase({
+    id: "terminal-placement",
+    steps: [{ n: 1, text: "Place deliberately vague work." }],
+    expected: { outcome: "terminal-placement-failure" },
+  });
+  let calls = 0;
+  const result = await runLiveEvaluation({
+    cases: [terminalCase],
+    repeats: 2,
+    call: async ({ effort }) => {
+      calls++;
+      return {
+        parsed: { impacts: [] },
+        appliedEffort: effort,
+        evidence: "live-model",
+      };
+    },
+  });
+
+  assert.equal(calls, 16, "four variants and two runs make one initial and one repair call each");
+  for (const metrics of Object.values(result.variants)) {
+    assert.deepEqual(metrics.retryRate, { retried: 2, total: 2, ratio: 1 });
+    assert.deepEqual(metrics.terminalPlacementFailures, { count: 2, total: 2, ratio: 1 });
+    assert.equal(metrics.expectedTerminalMatches, 2);
+  }
+  assert.deepEqual(result.evidence, {
+    verifiedLiveModelCalls: 16,
+    requiredLiveModelCalls: 16,
+  });
+  assert.equal(result.decision, "pass");
+});
+
+test("fixture-only terminal placement cases make no model calls or retry-rate claims", async () => {
+  const terminalCase = corpusCase({
+    id: "local-terminal-placement",
+    expected: { outcome: "terminal-placement-failure", fixtureOnly: true },
+  });
+  let calls = 0;
+  const result = await runLiveEvaluation({
+    cases: [terminalCase],
+    repeats: 1,
+    call: async () => { calls++; throw new Error("local terminal fixtures must not call the model"); },
+  });
+
+  assert.equal(calls, 0);
+  for (const metrics of Object.values(result.variants)) {
+    assert.deepEqual(metrics.retryRate, { retried: 0, total: 0, ratio: 1 });
+    assert.deepEqual(metrics.terminalPlacementFailures, { count: 1, total: 1, ratio: 1 });
+  }
+  assert.deepEqual(result.evidence, {
+    verifiedLiveModelCalls: 0,
+    requiredLiveModelCalls: 0,
+  });
+  assert.equal(result.decision, "not-evaluated");
 });
 
 test("live runner rejects a service that does not acknowledge the requested effort", async () => {
@@ -645,7 +742,8 @@ test("full corpus runs through ordinary effort URLs and passes only correct sema
               intent: "Should not be structural.", dir: "", files: [],
             }],
           })] }
-          : responseByPrompt.get(prompt);
+          : responseByPrompt.get(prompt) ||
+            (/previous placement was rejected/i.test(prompt) ? { impacts: [] } : undefined);
         assert.ok(parsed, "only non-failure corpus cases reach the service");
         return {
           ok: true, status: 200,
@@ -658,7 +756,11 @@ test("full corpus runs through ordinary effort URLs and passes only correct sema
 
   const correct = await run();
   assert.equal(correct.output.decision, "pass");
-  assert.equal(correct.fetches, 19 * 4 * 2, "five declared failure cases stay local");
+  assert.equal(
+    correct.fetches,
+    17 * 4 * 2,
+    "five transport and five fixture-only terminal cases stay local; three live terminal cases retry",
+  );
 
   const incorrect = await run({ breakCase: true });
   assert.equal(incorrect.output.decision, "fail");

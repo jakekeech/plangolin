@@ -4,10 +4,19 @@ This directory holds a fixed, sanitized corpus for comparing plan-impact placeme
 
 ## Metrics
 
-The evaluator runs responses through the production `validateImpacts` and provisional-id remapping code before scoring:
+The evaluator runs responses through the production `validateImpacts`,
+provisional-id remapping, and one constrained placement retry before scoring.
+A successful placement contains only visible `system` and `component`
+decisions:
 
-- **Client coverage:** plan steps represented after the client's generated-unresolved repair. The gate requires 100%.
-- **Raw coverage:** steps placed without generated-unresolved fallback.
+- **Client coverage:** plan steps represented by the final visible placement.
+  The gate requires 100% for cases expected to place successfully.
+- **Raw coverage:** steps represented by the final validated model placement.
+- **Retry rate:** semantic runs whose incomplete first response required the
+  single constrained repair call.
+- **Terminal placement failure rate:** semantic runs still incomplete after
+  that repair. A successful repair increments retry rate without incrementing
+  terminal failures.
 - **False structural operations:** kept additions, removals, responsibility changes, connections, or disconnections not allowed by the case predicates.
 - **False no-architecture conclusions:** a case labeled as requiring structural change that returns no kept structural operation.
 - **Invalid operations and dropped proposals:** production validator diagnostics.
@@ -15,13 +24,18 @@ The evaluator runs responses through the production `validateImpacts` and provis
 - **Repeat agreement:** equality of semantic placement signatures across identical runs. Titles and explanations are intentionally excluded.
 - **Failure handling:** malformed, timeout, quota, refusal, and network scenarios are deterministic client-harness checks, not model-quality prompts or empty-success outcomes.
 
-The live matrix is the Cartesian product of named/provisional context and high/medium effort. Every case is repeated (twice by default) with the same input. Output contains only aggregate metrics and sanitized case IDs; prompts and model responses are neither printed nor persisted.
+The live matrix is the Cartesian product of named/provisional context and
+high/medium effort. Every case is repeated (twice by default) with the same
+input. Live execution remains disabled unless `PLANGOLIN_EVAL_LIVE=1` is set.
+Output contains only aggregate coverage, retry, terminal-failure, accuracy,
+agreement, and failure metrics plus sanitized case IDs; prompts, plan content,
+and model responses are neither printed nor persisted.
 
 ## Cold-path gate
 
 The named/high variant is the baseline for the provisional/high variant. A valid run must contain no unexpected semantic-call failures, and every simulated failure must match its expected class. Provisional concurrent matching may default on only when representative live-model evidence then shows all of the following:
 
-1. repaired client coverage is 100%;
+1. final visible client coverage is 100%;
 2. false structural operations do not exceed the named baseline;
 3. false no-architecture conclusions do not exceed the named baseline;
 4. combined target/category accuracy is no more than 0.05 below the named baseline; and
@@ -29,7 +43,18 @@ The named/high variant is the baseline for the provisional/high variant. A valid
 
 The runner supports two effort-attestation modes. An evaluation-aware service can acknowledge the requested effort and `evaluation.evidence: "live-model"` per response. An ordinary service whose effort is fixed at process/deployment startup can instead use distinct high- and medium-effort URLs; the runner routes by effort and accepts only successful responses containing the ordinary service's nonempty `provider` and `model` fields. Fixture responses, invalid-reference simulations, and local failure simulations exercise the harness but do not contribute live-evidence checks.
 
-Cases with `expected.failureClass`, or with an allowlisted failure in `execution.scenario`, never call either model endpoint. The runner locally executes only the fixed allowlist `malformed`, `timeout`, `quota`, `refusal`, and `network`, taking the actual class from `execution.scenario` and comparing it with the expected class. Both values must be allowlisted; a missing, unknown, or mismatched declaration fails the failure-handling gate. Failure checks and signatures are separate from semantic scores, so these cases cannot inflate model coverage, placement accuracy, repeat agreement, or live-evidence counts. Every other case still runs against the configured model service.
+Cases with `expected.failureClass`, or with an allowlisted failure in
+`execution.scenario`, never call either model endpoint. The runner locally
+executes only the fixed allowlist `malformed`, `timeout`, `quota`, `refusal`,
+and `network`, taking the actual class from `execution.scenario` and comparing
+it with the expected class. Deliberately invalid terminal cases marked
+`fixtureOnly` also stay local: they contribute a terminal-placement check but
+no model call or retry-rate denominator. Failure checks and signatures are
+separate from semantic scores, so local cases cannot inflate model coverage,
+placement accuracy, repeat agreement, or live-evidence counts. Every other
+case runs against the configured model service and makes one model call when
+the initial placement is complete or exactly two when constrained repair is
+required.
 
 ## Reproduction
 

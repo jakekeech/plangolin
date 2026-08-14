@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   buildImpactPrompt,
+  buildPlacementRetryPrompt,
   remapImpactTargets,
   validateImpacts,
 } from "../src/plan-impact.js";
@@ -61,7 +62,11 @@ function expectedForStep(testCase, step) {
     list(placement.steps).includes(step));
 }
 
-export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
+export function scoreCase(testCase, raw, {
+  contextKind = "named",
+  retryAttempted = false,
+  retryCounted = true,
+} = {}) {
   const context = namedContext(testCase);
   const validated = validateImpacts(validationInput(testCase, raw, contextKind), {
     nodes: list(context.nodes), edges: list(context.edges), steps: list(testCase.steps),
@@ -119,7 +124,7 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
     rawCoverage: expectedTerminal
       ? coverageMetric(0, 0)
       : coverageMetric(totalSteps - missingSteps.size, totalSteps),
-    retryRate: retryMetric(terminalPlacementFailure ? 1 : 0, 1),
+    retryRate: retryMetric(retryAttempted ? 1 : 0, retryCounted ? 1 : 0),
     terminalPlacementFailures: failureMetric(terminalPlacementFailure ? 1 : 0, 1),
     expectedTerminalChecks: expectedTerminal ? 1 : 0,
     expectedTerminalMatches: expectedTerminal && terminalPlacementFailure ? 1 : 0,
@@ -299,34 +304,63 @@ export async function runLiveEvaluation({ cases, call, repeats = 2 }) {
             repeatedScores.push(failureScore(testCase, declared, { local: true }));
             continue;
           }
+          if (testCase.expected?.outcome === "terminal-placement-failure" &&
+              testCase.expected?.fixtureOnly === true) {
+            repeatedScores.push(scoreCase(testCase, { impacts: [] }, { retryCounted: false }));
+            continue;
+          }
           const requiresLiveEvidence = !testCase.expected?.failureClass &&
             testCase.expected?.fixtureOnly !== true;
-          if (requiresLiveEvidence) liveEvidenceChecks++;
           try {
-            const context = contextKind === "named"
+            const promptContext = contextKind === "named"
               ? testCase.contexts.named
               : testCase.contexts.provisional;
-            const response = await call({
-              caseId: testCase.id,
-              contextKind,
-              effort,
-              scenario: testCase.execution?.scenario || "semantic",
-              prompt: buildImpactPrompt(context, testCase.steps),
-            });
-            if (response?.appliedEffort !== effort) {
-              throw new Error(`evaluation service did not acknowledge ${effort} effort`);
-            }
-            if (requiresLiveEvidence && response.evidence === "live-model") liveEvidenceMatches++;
+            const callModel = async (prompt) => {
+              if (requiresLiveEvidence) liveEvidenceChecks++;
+              const response = await call({
+                caseId: testCase.id,
+                contextKind,
+                effort,
+                scenario: testCase.execution?.scenario || "semantic",
+                prompt,
+              });
+              if (response?.appliedEffort !== effort) {
+                throw new Error(`evaluation service did not acknowledge ${effort} effort`);
+              }
+              if (requiresLiveEvidence && response.evidence === "live-model") liveEvidenceMatches++;
+              return response;
+            };
+
+            const response = await callModel(buildImpactPrompt(promptContext, testCase.steps));
             if (!response.parsed || !Array.isArray(response.parsed.impacts)) {
               repeatedScores.push(failureScore(testCase, "malformed"));
-            } else {
-              const score = scoreCase(testCase, response.parsed, { contextKind });
-              repeatedScores.push(testCase.expected?.failureClass ? {
-                ...score,
-                expectedFailureChecks: 1,
-                expectedFailureMatches: 0,
-              } : score);
+              continue;
             }
+
+            const context = namedContext(testCase);
+            const initialRaw = validationInput(testCase, response.parsed, contextKind);
+            const initialValidation = validateImpacts(initialRaw, {
+              nodes: list(context.nodes), edges: list(context.edges), steps: list(testCase.steps),
+            });
+            if (initialValidation.coverage.complete) {
+              repeatedScores.push(scoreCase(testCase, initialRaw));
+              continue;
+            }
+
+            const rejectedNumbers = new Set(initialValidation.rejectedSteps);
+            const rejectedSteps = list(testCase.steps)
+              .filter((step) => rejectedNumbers.has(step.n));
+            const repair = await callModel(buildPlacementRetryPrompt(
+              context, rejectedSteps, initialValidation.diagnostics,
+            ));
+            const retained = initialValidation.impacts
+              .map(({ key: _key, ...impact }) => impact);
+            const repairedImpacts = repair?.parsed && Array.isArray(repair.parsed.impacts)
+              ? repair.parsed.impacts
+              : [];
+            repeatedScores.push(scoreCase(testCase, {
+              impacts: [...retained, ...repairedImpacts],
+            }, { retryAttempted: true }));
           } catch (error) {
             if (/did not acknowledge/i.test(error?.message || "")) throw error;
             repeatedScores.push(failureScore(testCase, safeFailureClass(error)));
