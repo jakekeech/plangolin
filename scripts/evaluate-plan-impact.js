@@ -124,11 +124,11 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
   };
 }
 
-function failureScore(testCase, failureClass) {
+function failureScore(testCase, failureClass, { local = false } = {}) {
   const expected = testCase.expected?.failureClass;
   return {
     caseId: testCase.id,
-    expectedFailureChecks: expected ? 1 : 0,
+    expectedFailureChecks: local || expected ? 1 : 0,
     expectedFailureMatches: expected && LOCAL_FAILURE_SCENARIOS.has(expected) &&
       LOCAL_FAILURE_SCENARIOS.has(failureClass) && expected === failureClass ? 1 : 0,
     unexpectedFailures: expected ? 0 : 1,
@@ -257,9 +257,9 @@ export async function runLiveEvaluation({ cases, call, repeats = 2 }) {
       for (const testCase of cases) {
         const repeatedScores = [];
         for (let run = 0; run < repeats; run++) {
-          if (testCase.expected?.failureClass) {
-            const declared = testCase.execution?.scenario;
-            repeatedScores.push(failureScore(testCase, declared));
+          const declared = testCase.execution?.scenario;
+          if (testCase.expected?.failureClass || LOCAL_FAILURE_SCENARIOS.has(declared)) {
+            repeatedScores.push(failureScore(testCase, declared, { local: true }));
             continue;
           }
           const requiresLiveEvidence = !testCase.expected?.failureClass &&

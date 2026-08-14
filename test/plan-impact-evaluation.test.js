@@ -277,6 +277,45 @@ test("live runner executes declared failure scenarios locally without model call
   assert.equal(result.decision, "not-evaluated", "local failure checks are not live evidence");
 });
 
+test("allowlisted execution failure without an expected class fails locally", async () => {
+  const failureCase = corpusCase({
+    id: "unexpected-timeout-scenario",
+    execution: { scenario: "timeout" },
+  });
+  let calls = 0;
+  const result = await runLiveEvaluation({
+    cases: [failureCase],
+    repeats: 2,
+    call: async ({ contextKind, effort }) => {
+      calls++;
+      const targetId = contextKind === "named" ? "auth" : "group:auth";
+      return {
+        parsed: { impacts: [
+          impact({ targetId }),
+          impact({ level: "support", targetId, steps: [2] }),
+        ] },
+        appliedEffort: effort,
+        evidence: "live-model",
+      };
+    },
+  });
+
+  assert.equal(calls, 0);
+  assert.deepEqual(result.evidence, {
+    verifiedLiveModelCalls: 0,
+    requiredLiveModelCalls: 0,
+  });
+  for (const metrics of Object.values(result.variants)) {
+    assert.equal(metrics.expectedFailureChecks, 2);
+    assert.equal(metrics.expectedFailureMatches, 0);
+    assert.equal(metrics.unexpectedFailures, 2);
+    assert.deepEqual(metrics.clientCoverage, { covered: 0, total: 0, ratio: 1 });
+    assert.deepEqual(metrics.repeatAgreement, { agreements: 0, comparisons: 0, ratio: 1 });
+  }
+  assert.equal(result.gate.passed, false);
+  assert.equal(result.decision, "not-evaluated");
+});
+
 test("local failure cases do not change semantic quality aggregates", async () => {
   const semanticCase = corpusCase();
   const failureCase = corpusCase({
