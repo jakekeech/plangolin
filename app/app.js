@@ -27,6 +27,7 @@ import {
   selectTemporaryPlanState,
 } from "./plan-interaction.js";
 import {
+  completeVisibleReview,
   createPlanPollScheduler,
   createPlanRetryController,
   planControlState,
@@ -2064,7 +2065,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     }
     const keys = document.getElementById("plan-keys");
     if (keys) {
-      const reviewing = !!plan && planOpen() && (plan.status === "ready" || plan.status === "partial");
+      const reviewing = !!plan && planOpen() && completeVisibleReview(plan);
       keys.hidden = !reviewing;
       if (reviewing && keys.dataset.filled !== "1") {
         keys.dataset.filled = "1"; keys.innerHTML = REVIEW_KEYS;
@@ -2442,7 +2443,7 @@ import { createRolledLoader } from "./rolled-loader.js";
      lives, so agreeing happens after seeing everything rather than beside
      the first thing. */
   function planStepList() {
-    if (!plan || (plan.status !== "ready" && plan.status !== "partial")) return [];
+    if (!completeVisibleReview(plan)) return [];
     const nameOf = (id) => {
       const added = planProjection.nodes.find((candidate) =>
         candidate.planType === "addition" && candidate.sourceId === id);
@@ -2486,8 +2487,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         connections.length ? connections.length + " new connection" + (connections.length === 1 ? "" : "s") : "",
         disconnections.length ? disconnections.length + " removed connection" + (disconnections.length === 1 ? "" : "s") : "",
       ].filter(Boolean);
-      const mark = impact.level === "unresolved" ? "?" : impact.level === "support" ? "•" :
-        impact.level === "component" ? "~" : additions.length ? "+" : removals.length ? "−" :
+      const mark = impact.level === "component" ? "~" : additions.length ? "+" : removals.length ? "−" :
           connections.length ? "→" : disconnections.length ? "↛" : "~";
       return {
         key: impact.key,
@@ -2501,9 +2501,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         files: impact.files || [],
         symbols: impact.symbols || [],
         lit,
-        detail: operations.join(" · ") ||
-          (impact.level === "support" ? "Supporting work" :
-            impact.level === "unresolved" ? "Placement needs review" : "Internal work"),
+        detail: operations.join(" · ") || "Internal work",
         where: impact.level === "component" && impact.targetId
           ? "Inside " + nameOf(impact.targetId)
           : "System level",
@@ -2546,10 +2544,6 @@ import { createRolledLoader } from "./rolled-loader.js";
   const cap = (x) => String(x || "").charAt(0).toUpperCase() + String(x || "").slice(1);
 
   function planSaysWhat(s) {
-    if (s.impact.level === "unresolved") {
-      return "This needs an explicit component before implementation" + (s.why ? ": " + s.why : ".");
-    }
-    if (s.impact.level === "support") return cap(s.why || "This supports the planned work.");
     if (s.impact.level === "component") return cap(s.why || "This changes work inside the component.");
     return cap(s.why || "This changes the system structure.");
   }
@@ -2624,7 +2618,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     body.hidden = false;
     stepProgress.hidden = false;
 
-    if (plan.status === "error") {
+    if (!completeVisibleReview(plan)) {
       note.textContent = "";
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
@@ -2729,7 +2723,7 @@ import { createRolledLoader } from "./rolled-loader.js";
      belongs with whatever builds the elements. */
   function applyPlanLit() {
     const s = planStepList()[planAt];
-    const on = plan && (plan.status === "ready" || plan.status === "partial") && s && !s.summary;
+    const on = completeVisibleReview(plan) && s && !s.summary;
     shell.dataset.planSpot = on ? "on" : "off";
     const lit = new Set(on ? s.lit : []);
     const reached = new Set(on ? (s.reach || []).map((r) => r.id) : []);
@@ -2794,14 +2788,10 @@ import { createRolledLoader } from "./rolled-loader.js";
     const live = !!plan;
     wrap.hidden = !live;
     if (!live) { wrap.dataset.open = "false"; return; }
-    const needsReview = planProjectionVisible(plan)
-      ? [...new Set((plan.impacts || []).filter((impact) => impact.level === "unresolved")
-          .flatMap((impact) => impact.steps || []))].length : 0;
     const total = (plan.steps || []).length;
     brief.innerHTML =
       "<b>You asked for</b><span>" + esc(plan.request || firstStepText()) + "</span>" +
       (total ? '<b style="margin-top:5px">' + total + " plan step" + (total > 1 ? "s" : "") +
-        (needsReview ? " · " + needsReview + (needsReview === 1 ? " needs" : " need") + " review" : "") +
         "</b>" : "");
   }
 
@@ -2909,6 +2899,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function planDecide(cutIt, impactKey, focusToken) {
+    if (!completeVisibleReview(plan)) return;
     const list = planStepList();
     const s = list[planAt];
     impactKey = impactKey || (s && !s.summary ? s.key : "");
@@ -2937,6 +2928,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   }
 
   function selectPlanImpact(impactKey, representationId) {
+    if (!completeVisibleReview(plan)) return;
     const index = (plan && plan.impacts || []).findIndex((impact) => impact.key === impactKey);
     if (index < 0) return;
     if (representationId) {
@@ -2950,6 +2942,7 @@ import { createRolledLoader } from "./rolled-loader.js";
 
   function planGo(delta) {
     const list = planStepList();
+    if (!list.length) return;
     planAt = Math.max(0, Math.min(list.length - 1, planAt + delta));
     renderPlan();
   }
@@ -2962,7 +2955,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   /* Reviewing is a reading task, and six decisions is six round trips to the
      mouse otherwise. */
   document.addEventListener("keydown", (ev) => {
-    if (!plan || !planOpen() || (plan.status !== "ready" && plan.status !== "partial")) return;
+    if (!plan || !planOpen() || !completeVisibleReview(plan)) return;
     const el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
     if (el && el.isContentEditable) return;
@@ -3041,18 +3034,18 @@ import { createRolledLoader } from "./rolled-loader.js";
   document.getElementById("plan-retry").addEventListener("click", async () => {
     document.getElementById("plan-close").focus({ preventScroll: true });
     const retried = await retryPlan();
-    if (!retried && plan && plan.status === "error") {
+    if (!retried && planControlState(plan).retry) {
       document.getElementById("plan-retry").focus({ preventScroll: true });
     }
   });
 
   document.getElementById("plan-skip").addEventListener("click", () => {
-    if (!plan || plan.status !== "error") return;
+    if (!planControlState(plan).skip) return;
     sendAnswer({ id: plan.id, skipped: true }, { skipped: true });
   });
 
   document.getElementById("plan-approve").addEventListener("click", () => {
-    if (!plan || (plan.status !== "ready" && plan.status !== "partial")) return;
+    if (!completeVisibleReview(plan)) return;
     const all = (plan.impacts || []).map((impact) => impact.key);
     const body = buildPlanResolvePayload(plan, planCut, S.nodes, planProjection);
     sendAnswer(body, { kept: body.accepted.length, cut: all.length - body.accepted.length });
@@ -3091,7 +3084,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         /* working -> ready is when the panel gains its content and the sheet
            gains its ghosts. Both change what a fit should produce, so this is
            the moment to compute one. */
-        if (plan && (plan.status === "ready" || plan.status === "partial") && wasWorking) fitAfterSettling();
+        if (completeVisibleReview(plan) && wasWorking) fitAfterSettling();
         // A second review means the session came back here, so the note telling
         // them to leave has been answered by events.
         if (plan) { clearHandoff(); setPlanOpen(true); }
@@ -3346,7 +3339,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     /* Removed lines sit over their persisted stroke. They are never deleted:
        the coral broken overlay is the proposal, and cutting its owning impact
        restores the ordinary line underneath. */
-    if (plan && (plan.status === "ready" || plan.status === "partial")) {
+    if (completeVisibleReview(plan)) {
       for (const disconnection of planProjection.annotations.disconnections) {
         const visible = projectedEdgeEndpoints(disconnection, viewRoot, S.nodes, planProjection);
         if (!visible) continue;
@@ -3376,7 +3369,7 @@ import { createRolledLoader } from "./rolled-loader.js";
        Either end may be a ghost or a real block; an end that resolves to
        neither is skipped, because a line to nowhere says something the plan
        did not. */
-    if (plan && (plan.status === "ready" || plan.status === "partial")) {
+    if (completeVisibleReview(plan)) {
       const end = (id) => {
         const g = ghostAt.get(id);
         if (g) return { id: id, x: g.x, y: g.y };

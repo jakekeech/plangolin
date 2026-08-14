@@ -46,13 +46,36 @@ const boundedNote = (value) => (typeof value === "string" ? value : "")
   .replace(/\s+/g, " ").trim().slice(0, MAX_BROWSER_NOTE_LENGTH);
 
 const placementError = () => {
-  const error = new Error("Could not place every change in this plan. Review it by hand.");
+  const error = new Error("Plangolin could not place every change on this system map.");
   error.userFacing = true;
   return error;
 };
 
 const sheetNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
   .filter((node) => node && typeof node === "object" && typeof node.id === "string");
+
+const completeReadyReview = (candidate) => {
+  if (!candidate || candidate.status !== "ready") return false;
+  const steps = Array.isArray(candidate.steps) ? candidate.steps : [];
+  const impacts = Array.isArray(candidate.impacts) ? candidate.impacts : [];
+  if (!steps.length || !impacts.length) return false;
+  if (impacts.some((entry) => !entry ||
+    (entry.level !== "system" && entry.level !== "component"))) return false;
+
+  const claims = new Map();
+  for (const step of steps) {
+    if (!step || claims.has(step.n)) return false;
+    claims.set(step.n, 0);
+  }
+  for (const impact of impacts) {
+    const impactSteps = Array.isArray(impact.steps) ? impact.steps : [];
+    for (const stepNumber of impactSteps) {
+      if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+      claims.set(stepNumber, 1);
+    }
+  }
+  return [...claims.values()].every((count) => count === 1);
+};
 
 const truncationNote = (review) => review.truncated
   ? `This plan is longer than plangolin reads — only the first ${review.steps.length} steps were reviewed.`
@@ -88,7 +111,7 @@ function scanResult(record) {
 function changedIds(impacts) {
   const ids = new Set();
   for (const impact of impacts) {
-    if ((impact.level === "component" || impact.level === "support") && impact.targetId) {
+    if (impact.level === "component" && impact.targetId) {
       ids.add(impact.targetId);
     }
     for (const item of impact.removals || []) ids.add(item.id);
@@ -181,8 +204,7 @@ export function createPlanStore(dependencies = {}) {
     if (!isCurrentAttempt(token) || review.status !== "working") return false;
     const impacts = Array.isArray(result?.impacts) ? result.impacts : [];
     const complete = result?.outcome === "ready" && result?.coverage?.complete === true &&
-      impacts.length > 0 && impacts.every((entry) =>
-        entry?.level === "system" || entry?.level === "component");
+      completeReadyReview({ status: "ready", steps: review.steps, impacts });
     if (!complete) return failAttempt(token, placementError());
 
     publish({ phase: "arranging_review" });
@@ -469,7 +491,7 @@ export function createPlanStore(dependencies = {}) {
         release(id, { status: "skipped" });
         return true;
       }
-      if (review.status !== "ready" && review.status !== "partial") return false;
+      if (!completeReadyReview(review)) return false;
 
       const knownKeys = new Set(review.impacts.map((entry) => entry.key));
       const acceptedKeys = new Set(
@@ -498,7 +520,9 @@ export function createPlanStore(dependencies = {}) {
     },
 
     retry(id, ws) {
-      if (!review || review.id !== id || review.status !== "error") return false;
+      const retryable = review && (review.status === "error" ||
+        ((review.status === "ready" || review.status === "partial") && !completeReadyReview(review)));
+      if (!review || review.id !== id || !retryable) return false;
       review.analysis = null;
       beginAttempt(ws, review.analysisOptions || {});
       return true;

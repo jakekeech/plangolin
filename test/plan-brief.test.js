@@ -49,18 +49,18 @@ const IMPACTS = [
     additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
   },
   {
-    key: "impact:5", level: "support", targetId: "api", title: "Add API cache tests",
+    key: "impact:5", level: "component", targetId: "api", title: "Add API cache tests",
     why: "Covers cache behavior.", size: "small", steps: [5], files: [], symbols: [],
     additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
   },
   {
-    key: "impact:6", level: "support", targetId: "", title: "Document cache rollout",
+    key: "impact:6", level: "component", targetId: "docs", title: "Document cache rollout",
     why: "Explains the release.", size: "small", steps: [6], files: [], symbols: [],
     additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
   },
   {
-    key: "impact:7", level: "unresolved", targetId: "", title: "Place cache policy",
-    why: "The intended component is not known.", size: "", steps: [7], files: [], symbols: [],
+    key: "impact:7", level: "component", targetId: "docs", title: "Place cache policy",
+    why: "Keeps the policy explicit.", size: "small", steps: [7], files: [], symbols: [],
     additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
   },
   {
@@ -83,7 +83,7 @@ function brief(accepted = ALL_BUT_LAST, options = {}) {
 
 test("one accepted system impact keeps its addition and connection together", () => {
   const out = buildBrief({
-    nodes: NODES, steps: STEPS, impacts: [IMPACTS[0]], reach: [],
+    nodes: NODES, steps: [STEPS[0]], impacts: [IMPACTS[0]], reach: [],
     accepted: new Set(["impact:1"]), truncated: false,
   });
 
@@ -96,7 +96,7 @@ test("one accepted system impact keeps its addition and connection together", ()
 
 test("rejecting a system impact cuts all of its structural operations together", () => {
   const out = buildBrief({
-    nodes: NODES, steps: STEPS, impacts: [IMPACTS[0]], reach: [],
+    nodes: NODES, steps: [STEPS[0]], impacts: [IMPACTS[0]], reach: [],
     accepted: new Set(), truncated: false,
   });
 
@@ -109,8 +109,7 @@ test("rejecting a system impact cuts all of its structural operations together",
 test("the populated brief keeps the mandated section order", () => {
   const out = brief();
   const headings = [
-    "BUILD", "REMOVE", "UPDATE RESPONSIBILITY", "INTERNAL WORK", "SUPPORTING WORK",
-    "OUT OF SCOPE", "NEEDS REVIEW", "DO NOT TOUCH",
+    "BUILD", "REMOVE", "UPDATE RESPONSIBILITY", "INTERNAL WORK", "OUT OF SCOPE", "DO NOT TOUCH",
   ];
   const positions = headings.map((heading) => out.indexOf(`\n${heading}\n`));
 
@@ -129,38 +128,43 @@ test("accepted removals, disconnections, and responsibility changes retain their
   assert.match(out, /from the plan: "Serve cached requests from the API\."/);
 });
 
-test("internal and supporting work are grouped by their target or Project Support", () => {
+test("internal work is grouped by component with attached plan evidence", () => {
   const out = brief();
 
   assert.match(out, /INTERNAL WORK\n\s+API Server\n\s+Add cache eviction — Bounds cache memory\./);
-  assert.match(out, /SUPPORTING WORK\n\s+API Server\n\s+Add API cache tests — Covers cache behavior\./);
-  assert.match(out, /Project Support\n\s+Document cache rollout — Explains the release\./);
+  assert.match(out, /Add API cache tests — Covers cache behavior\./);
+  assert.match(out, /Documentation\n\s+Document cache rollout — Explains the release\./);
+  assert.match(out, /Place cache policy — Keeps the policy explicit\./);
   assert.match(out, /from the plan: "Add API cache tests\."/);
   assert.match(out, /from the plan: "Document the cache rollout\."/);
 });
 
-test("component-scoped support protects its target from DO NOT TOUCH", () => {
-  const support = IMPACTS.find((impact) => impact.key === "impact:5");
+test("component-scoped work protects its target from DO NOT TOUCH", () => {
+  const internal = IMPACTS.find((impact) => impact.key === "impact:5");
   const out = buildBrief({
     nodes: NODES,
-    steps: STEPS,
-    impacts: [support],
+    steps: [STEPS[4]],
+    impacts: [internal],
     reach: [],
-    accepted: new Set([support.key]),
+    accepted: new Set([internal.key]),
   });
 
-  assert.match(out, /SUPPORTING WORK\n\s+API Server\n\s+Add API cache tests/);
+  assert.match(out, /INTERNAL WORK\n\s+API Server\n\s+Add API cache tests/);
   assert.doesNotMatch(out.split("DO NOT TOUCH")[1] || "", /API Server/);
   assert.match(out, /DO NOT TOUCH\n\s+Database, Schema, Documentation/);
 });
 
-test("accepted unresolved work directs the worker to confirm scope", () => {
-  const out = brief();
-
-  assert.match(out, /NEEDS REVIEW/);
-  assert.match(out, /Confirm the intended component before inferring missing scope\./);
-  assert.match(out, /Place cache policy — The intended component is not known\./);
-  assert.match(out, /from the plan: "Move the cache policy somewhere appropriate\."/);
+test("legacy support and unresolved inputs are rejected instead of emitted", () => {
+  for (const level of ["support", "unresolved"]) {
+    const legacy = { ...IMPACTS[4], level };
+    assert.throws(() => buildBrief({
+      nodes: NODES,
+      steps: [STEPS[4]],
+      impacts: [legacy],
+      reach: [],
+      accepted: new Set([legacy.key]),
+    }), /complete visible review/i, level);
+  }
 });
 
 test("rejected impacts cite their original plan steps and accepted changes protect affected components", () => {
@@ -169,13 +173,19 @@ test("rejected impacts cite their original plan steps and accepted changes prote
   assert.match(out, /OUT OF SCOPE\n\s+The user removed these\. Do not build them\./);
   assert.match(out, /✗ Tune cache expiry — The expiry policy needs a decision\./);
   assert.match(out, /from the plan: "Tune the cache expiry\."/);
-  assert.match(out, /DO NOT TOUCH\n\s+Schema, Documentation/);
+  assert.match(out, /DO NOT TOUCH\n\s+Schema/);
   assert.doesNotMatch(out.split("DO NOT TOUCH")[1], /API Server|Database/);
 });
 
 test("the brief guards its trusted impact contract and keeps truncation explicit", () => {
   assert.throws(() => buildBrief({ nodes: NODES, steps: STEPS, accepted: new Set() }), /impacts must be an array/i);
   assert.throws(() => buildBrief({ nodes: NODES, steps: STEPS, impacts: [], accepted: [] }), /accepted must be a set/i);
+  assert.throws(() => buildBrief({
+    nodes: NODES,
+    steps: STEPS,
+    impacts: [IMPACTS[0]],
+    accepted: new Set([IMPACTS[0].key]),
+  }), /complete visible review/i);
 
   const out = brief(ALL_BUT_LAST, { truncated: true });
   assert.match(out, /Only the first 8 steps of this plan were reviewed in plangolin\./);

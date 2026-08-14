@@ -2,6 +2,8 @@
    module deliberately knows nothing about the DOM or document save path so the
    browser and Node tests consume the same immutable projection. */
 
+import { completeVisibleReview } from "./plan-progress.js";
+
 const list = (value) => Array.isArray(value) ? value : [];
 const namespacePart = (value) => encodeURIComponent(String(value || ""));
 const parentOf = (node) => node && node.parent ? node.parent : null;
@@ -64,18 +66,15 @@ export function reviewDecisionImpacts(review) {
 }
 
 export function planProjectionVisible(review) {
-  return ["ready", "partial", "error"].includes(review && review.status || "");
+  return completeVisibleReview(review);
 }
 
-/* A failed analysis keeps the persisted map visible without inventing graph
-   nodes. A working retry keeps the previous projection to avoid flicker. */
+/* Anything other than a complete ready review keeps the persisted map visible
+   without inventing graph nodes. */
 export function projectionForReview(review, nodes, edges, previousProjection) {
-  const status = review && review.status || "";
   if (planProjectionVisible(review)) {
     return buildPlanProjection(review, nodes, edges);
   }
-  const previous = previousProjection || emptyProjection();
-  if (status === "working" && previous.reviewId === review.id) return previous;
   return emptyProjection();
 }
 

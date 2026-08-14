@@ -1,5 +1,6 @@
 const MAX_COUNT = 1_000_000;
 const ACTIVE_STATUSES = new Set(["working", "ready", "partial", "error"]);
+const PLACEMENT_ERROR = "Plangolin could not place every change on this system map.";
 const list = (value) => Array.isArray(value) ? value : [];
 
 const boundedCount = (value) => Number.isFinite(value)
@@ -25,7 +26,27 @@ const operationNames = (values, noun) => {
   return plural(names.length, noun) + " (" + sentenceList(labeled) + ")";
 };
 
-const cleanNote = (value) => String(value || "").replace(/\s+/g, " ").trim().slice(0, 500);
+export function completeVisibleReview(review) {
+  if (!review || review.status !== "ready") return false;
+  const steps = list(review.steps);
+  const impacts = list(review.impacts);
+  if (!steps.length || !impacts.length) return false;
+  if (impacts.some((impact) => !impact ||
+    (impact.level !== "system" && impact.level !== "component"))) return false;
+
+  const claims = new Map();
+  for (const step of steps) {
+    if (!step || claims.has(step.n)) return false;
+    claims.set(step.n, 0);
+  }
+  for (const impact of impacts) {
+    for (const stepNumber of list(impact.steps)) {
+      if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+      claims.set(stepNumber, 1);
+    }
+  }
+  return [...claims.values()].every((count) => count === 1);
+}
 
 export function planProgressCopy(review) {
   const counts = review && review.counts || {};
@@ -54,15 +75,7 @@ export function planProgressCopy(review) {
 }
 
 export function planSummary(review, projection, nodes) {
-  if (review && review.status === "error") {
-    const note = cleanNote(review.note)
-      .replace(/^This plan is longer than plangolin reads — only the first \d+ steps were reviewed\.\s*/i, "") ||
-      "Plangolin couldn't complete the impact review. Retry or skip this review.";
-    const summary = "Review stopped safely. " + note;
-    return /retry/i.test(summary) && /skip/i.test(summary)
-      ? summary
-      : summary + " Retry or skip this review.";
-  }
+  if (review && !completeVisibleReview(review)) return PLACEMENT_ERROR;
 
   const impacts = list(review && review.impacts);
   const projectedNodes = list(projection && projection.nodes);
@@ -101,28 +114,19 @@ export function planSummary(review, projection, nodes) {
   ].filter(Boolean);
 
   const affected = [...new Set(impacts
-    .filter((entry) => (entry.level === "component" || entry.level === "support") && entry.targetId)
+    .filter((entry) => entry.level === "component" && entry.targetId)
     .map((entry) => nameOf(entry.targetId)))];
-  const unresolvedSteps = [...new Set(impacts
-    .filter((entry) => entry.level === "unresolved")
-    .flatMap((entry) => list(entry.steps)))];
-  const needsReview = review && review.status === "partial"
-    ? unresolvedSteps.length
-      ? "Needs Review: " + plural(unresolvedSteps.length, "plan step") + " still " +
-        (unresolvedSteps.length === 1 ? "needs" : "need") + " a component."
-      : "Needs Review: some plan changes still need a closer look."
-    : "";
 
   if (structural.length) {
     return [...structural, reviewed, affected.length
       ? "Work also affects " + sentenceList(affected) + "."
-      : "", needsReview].filter(Boolean).join(" ");
+      : ""].filter(Boolean).join(" ");
   }
   if (affected.length) {
-    return [reviewed, "Work affects " + sentenceList(affected) + ".", needsReview ||
-      "The system shape stays the same."].filter(Boolean).join(" ");
+    return [reviewed, "Work affects " + sentenceList(affected) + ".",
+      "The system shape stays the same."].join(" ");
   }
-  return [reviewed, needsReview || "Review the proposed work before approving."].join(" ");
+  return [reviewed, "Review the proposed work before approving."].join(" ");
 }
 
 export function planPollDelay(review) {
@@ -131,17 +135,17 @@ export function planPollDelay(review) {
 
 export function planControlState(review) {
   const status = review && review.status || "";
-  const reviewable = status === "ready" || status === "partial";
+  const reviewable = completeVisibleReview(review);
+  const retryable = status === "error" || status === "partial" ||
+    (status === "ready" && !reviewable);
   return {
     keep: reviewable,
     cut: reviewable,
     approve: reviewable,
-    retry: status === "error",
-    skip: status === "error",
+    retry: retryable,
+    skip: retryable,
     navigation: reviewable,
-    warning: status === "partial"
-      ? "Needs Review — check unresolved plan steps before approving."
-      : "",
+    warning: "",
   };
 }
 
@@ -153,16 +157,13 @@ export function planRenderState(review, projection, nodes) {
     return { progress, summary: "", announcement: progress, controls };
   }
   const summary = planSummary(review, projection, nodes);
-  const actionable = review.status === "error" && !(/retry/i.test(summary) && /skip/i.test(summary))
-    ? summary + " Retry or skip this review."
-    : summary;
-  return { progress: "", summary, announcement: actionable, controls };
+  return { progress: "", summary, announcement: summary, controls };
 }
 
 export function reconcilePlanCutKeys(previousReview, nextReview, cutKeys) {
   if (!previousReview || !nextReview || previousReview.id !== nextReview.id) return new Set();
   const current = new Set(cutKeys instanceof Set ? cutKeys : []);
-  if (nextReview.status !== "ready" && nextReview.status !== "partial") return current;
+  if (!completeVisibleReview(nextReview)) return current;
   const currentKeys = new Set(list(nextReview.impacts).map((impact) => impact.key).filter(Boolean));
   return new Set([...current].filter((key) => currentKeys.has(key)));
 }
@@ -213,7 +214,7 @@ export function createPlanRetryController(options) {
 
   return async function retryPlan() {
     const failed = currentReview();
-    if (retrying || !failed || failed.status !== "error") return false;
+    if (retrying || !failed || !planControlState(failed).retry) return false;
     retrying = true;
     const optimistic = {
       ...failed,

@@ -92,9 +92,17 @@ test("temporary cards are focusable graph items with decisions kept in the panel
 test("failed reviews keep the codebase visible and offer retry or skip in the panel", () => {
   assert.match(functionSource(APP, "renderNodes"), /planProjectionVisible\(plan\)/);
   const panel = functionSource(APP, "renderPlan");
-  assert.match(panel, /if \(plan\.status === "error"\)/);
+  assert.match(panel, /if \(!completeVisibleReview\(plan\)\)/);
   assert.match(panel, /renderPlanControls\("error", renderState\.controls\)/);
   assert.doesNotMatch(functionSource(APP, "renderTemporaryNode"), /planControlState\(plan\)/);
+});
+
+test("browser review navigation and copy require complete visible placement", () => {
+  assert.match(APP, /completeVisibleReview/);
+  assert.match(functionSource(APP, "planStepList"), /completeVisibleReview\(plan\)/);
+  assert.match(functionSource(APP, "applyPlanLit"), /completeVisibleReview\(plan\)/);
+  assert.match(functionSource(APP, "renderPlan"), /if \(!completeVisibleReview\(plan\)\)/);
+  assert.doesNotMatch(APP, /Needs Review|Supporting work|Placement needs review|Project Support/);
 });
 
 test("the plan panel folds cited steps, files, and symbols into Details", () => {

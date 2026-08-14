@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  completeVisibleReview,
   createPlanPollScheduler,
   createPlanRetryController,
   planControlState,
@@ -53,8 +54,8 @@ function review(overrides = {}) {
     counts: { files: 84, components: 8, steps: 12 },
     steps: STEPS,
     impacts: [
-      impact(),
-      impact({ key: "impact:tests", level: "support", targetId: "tests" }),
+      impact({ steps: [1, 2, 3, 4] }),
+      impact({ key: "impact:tests", targetId: "tests", steps: [5, 6, 7] }),
     ],
     note: "",
     ...overrides,
@@ -110,16 +111,16 @@ test("an internal-only summary names affected components before the secondary sh
     "The system shape stays the same.");
 });
 
-test("component and support impacts on the same target name that component once", () => {
+test("multiple component impacts on the same target name that component once", () => {
   const result = planSummary(review({
     impacts: [
-      impact({ key: "impact:api" }),
-      impact({ key: "impact:api-support", level: "support", targetId: "api" }),
+      impact({ key: "impact:api", steps: [1, 2, 3, 4] }),
+      impact({ key: "impact:api-internal", targetId: "api", steps: [5, 6, 7] }),
     ],
   }), {
     nodes: [
       { planType: "card", impactKey: "impact:api", parent: "api" },
-      { planType: "card", impactKey: "impact:api-support", parent: "api" },
+      { planType: "card", impactKey: "impact:api-internal", parent: "api" },
     ],
     edges: [],
     annotations: { removals: [], responsibilities: [], disconnections: [] },
@@ -136,6 +137,7 @@ test("a structural summary leads with additions, removals, and connections", () 
       key: "impact:structure",
       level: "system",
       targetId: "",
+      steps: [1, 2, 3, 4, 5, 6, 7],
       additions: [{ id: "limiter", name: "Rate Limiter" }],
       removals: [{ id: "cache" }],
       connections: [{ from: "api", to: "limiter", label: "checks limits" }],
@@ -168,6 +170,7 @@ test("structural summaries count distinct operations that share display names", 
       key: "impact:structure",
       level: "system",
       targetId: "",
+      steps: [1, 2, 3, 4, 5, 6, 7],
       additions: [
         { id: "worker-a", name: "Worker" },
         { id: "worker-b", name: "Worker" },
@@ -202,38 +205,24 @@ test("structural summaries count distinct operations that share display names", 
   assert.equal((result.match(/×2/g) || []).length, 3, result);
 });
 
-test("a partial summary identifies Needs Review without claiming a settled shape", () => {
-  const partial = review({
-    status: "partial",
-    impacts: [
-      impact(),
-      impact({
-        key: "impact:unknown",
-        level: "unresolved",
-        targetId: "",
-        steps: [4, 5],
-      }),
-    ],
-  });
-
-  const result = planSummary(partial, {
+test("an incomplete ready summary fails closed without claiming a settled shape", () => {
+  const incomplete = review({ impacts: [impact({ steps: [1] })] });
+  const result = planSummary(incomplete, {
     nodes: [], edges: [], annotations: { removals: [], responsibilities: [], disconnections: [] },
   }, NODES);
 
-  assert.match(result, /Needs Review: 2 plan steps still need a component\./);
+  assert.equal(result, "Plangolin could not place every change on this system map.");
   assert.doesNotMatch(result, /system shape stays the same/i);
 });
 
-test("an error summary reports the safe service message without claiming review coverage", () => {
+test("an error summary uses the placement failure copy without claiming review coverage", () => {
   const result = planSummary(review({
     status: "error",
-    note: "This Plangolin service does not support impact review yet. Retry after it updates, or skip this review.",
+    note: "Provider unavailable.",
     impacts: [],
   }), { nodes: [], edges: [], annotations: {} }, NODES);
 
-  assert.equal(result,
-    "Review stopped safely. This Plangolin service does not support impact review yet. " +
-    "Retry after it updates, or skip this review.");
+  assert.equal(result, "Plangolin could not place every change on this system map.");
   assert.doesNotMatch(result, /steps? reviewed|work affects|system shape/i);
 });
 
@@ -245,8 +234,7 @@ test("a truncated error removes the server's stale reviewed-step coverage claim"
     impacts: [],
   }), { nodes: [], edges: [], annotations: {} }, NODES);
 
-  assert.equal(result, "Review stopped safely. Couldn't read this plan — review it by hand. " +
-    "Retry or skip this review.");
+  assert.equal(result, "Plangolin could not place every change on this system map.");
   assert.doesNotMatch(result, /60|steps? reviewed/i);
 });
 
@@ -337,19 +325,65 @@ test("poll scheduler continues after fetch failure and stop cancels the pending 
   assert.equal(calls, 1);
 });
 
-test("control state exposes only safe actions for error, partial, and working reviews", () => {
+test("zero visible decisions can never be approved", () => {
+  const current = { status: "ready", steps: [{ n: 1, text: "Add auth" }], impacts: [] };
+  assert.equal(completeVisibleReview(current), false);
+  assert.equal(planControlState(current).approve, false);
+  assert.equal(planControlState(current).retry, true);
+  assert.equal(planControlState(current).skip, true);
+});
+
+test("complete system and component coverage enables approval", () => {
+  const current = {
+    status: "ready",
+    steps: [{ n: 1, text: "Add store" }, { n: 2, text: "Protect API" }],
+    impacts: [
+      { key: "impact:1", level: "system", steps: [1] },
+      { key: "impact:2", level: "component", steps: [2] },
+    ],
+  };
+  assert.equal(completeVisibleReview(current), true);
+  assert.equal(planControlState(current).approve, true);
+});
+
+test("duplicate and out-of-range claims fail visible review completeness", () => {
+  const base = {
+    status: "ready",
+    steps: [{ n: 1, text: "Add store" }, { n: 2, text: "Protect API" }],
+  };
+  assert.equal(completeVisibleReview({
+    ...base,
+    impacts: [{ key: "impact:1", level: "system", steps: [1, 1, 2] }],
+  }), false);
+  assert.equal(completeVisibleReview({
+    ...base,
+    impacts: [{ key: "impact:1", level: "system", steps: [1, 2, 3] }],
+  }), false);
+});
+
+test("control state exposes decisions only for complete ready reviews", () => {
   assert.deepEqual(planControlState({ status: "error" }), {
     keep: false, cut: false, approve: false, retry: true, skip: true,
     navigation: false, warning: "",
   });
   assert.deepEqual(planControlState({ status: "partial" }), {
-    keep: true, cut: true, approve: true, retry: false, skip: false,
-    navigation: true, warning: "Needs Review — check unresolved plan steps before approving.",
+    keep: false, cut: false, approve: false, retry: true, skip: true,
+    navigation: false, warning: "",
   });
   assert.deepEqual(planControlState({ status: "working" }), {
     keep: false, cut: false, approve: false, retry: false, skip: false,
     navigation: false, warning: "",
   });
+  assert.deepEqual(planControlState(review()), {
+    keep: true, cut: true, approve: true, retry: false, skip: false,
+    navigation: true, warning: "",
+  });
+  for (const status of ["resolved", "skipped"]) {
+    assert.deepEqual(planControlState(review({ status })), {
+      keep: false, cut: false, approve: false, retry: false, skip: false,
+      navigation: false, warning: "",
+    });
+  }
 });
 
 test("one render model announces every working, error, partial, and ready transition", () => {
@@ -364,12 +398,7 @@ test("one render model announces every working, error, partial, and ready transi
   const states = [
     review({ status: "working", phase: "mapping_project", counts: { files: 84 } }),
     review({ status: "error", note: "Provider unavailable.", impacts: [] }),
-    review({
-      status: "partial",
-      impacts: [impact(), impact({
-        key: "impact:unknown", level: "unresolved", targetId: "", steps: [4],
-      })],
-    }),
+    review({ status: "partial", impacts: [impact({ steps: [1] })] }),
     review(),
   ].map((current) => planRenderState(current, projection, NODES));
   const announcer = { textContent: "" };
@@ -380,13 +409,12 @@ test("one render model announces every working, error, partial, and ready transi
 
   assert.deepEqual(announcements, [
     "Mapping your project — 84 files found",
-    "Review stopped safely. Provider unavailable. Retry or skip this review.",
-    "7 plan steps reviewed. Work affects API Server. " +
-      "Needs Review: 1 plan step still needs a component.",
+    "Plangolin could not place every change on this system map.",
+    "Plangolin could not place every change on this system map.",
     "7 plan steps reviewed. Work affects API Server and Test Suite. " +
       "The system shape stays the same.",
   ]);
-  assert.equal(new Set(announcements).size, 4);
+  assert.equal(new Set(announcements).size, 3);
   assert.deepEqual(states.map(({ controls }) => ({
     keep: controls.keep,
     cut: controls.cut,
@@ -398,8 +426,7 @@ test("one render model announces every working, error, partial, and ready transi
     { keep: false, cut: false, approve: false, retry: false, skip: false, warning: "" },
     { keep: false, cut: false, approve: false, retry: true, skip: true, warning: "" },
     {
-      keep: true, cut: true, approve: true, retry: false, skip: false,
-      warning: "Needs Review — check unresolved plan steps before approving.",
+      keep: false, cut: false, approve: false, retry: true, skip: true, warning: "",
     },
     { keep: true, cut: true, approve: true, retry: false, skip: false, warning: "" },
   ]);

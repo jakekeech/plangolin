@@ -224,6 +224,30 @@ test("store publishes only complete ready placement results", async () => {
   }
 });
 
+test("forged ready reviews cannot resolve without exact visible step coverage", async () => {
+  const cases = [
+    { name: "empty impacts", impacts: [] },
+    { name: "missing claim", impacts: [impact({ steps: [1] })] },
+    { name: "duplicate claim", impacts: [impact({ steps: [1, 1, 2] })] },
+    { name: "out-of-range claim", impacts: [impact({ steps: [1, 2, 3] })] },
+    { name: "incompatible level", impacts: [impact({ level: "support" })] },
+  ];
+
+  for (const failure of cases) {
+    const store = createPlanStore({ impact: async () => readyResult() });
+    const { id } = store.open({ plan: PLAN });
+    await store.fill(memWs(SYSTEM));
+    store.current().impacts = failure.impacts;
+
+    assert.equal(store.resolve(id, {
+      accepted: failure.impacts.map((entry) => entry.key),
+      nodes: NODES,
+    }), false, failure.name);
+    assert.equal(store.current().status, "ready", failure.name);
+    assert.equal(store.current().brief, undefined, failure.name);
+  }
+});
+
 test("browser counts are safe bounded integers and provider notes are normalized and bounded", async () => {
   const longMessage = `  Impact service\n unavailable   ${"private-detail ".repeat(100)}`;
   const cases = [

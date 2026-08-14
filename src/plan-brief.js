@@ -8,9 +8,30 @@ const CITE_CHARS = 80;
 
 const list = (value) => Array.isArray(value) ? value : [];
 
+const completeInputs = (steps, impacts) => {
+  if (!steps.length || !impacts.length) return false;
+  if (impacts.some((impact) => !impact ||
+    (impact.level !== "system" && impact.level !== "component"))) return false;
+  const claims = new Map();
+  for (const step of steps) {
+    if (!step || claims.has(step.n)) return false;
+    claims.set(step.n, 0);
+  }
+  for (const impact of impacts) {
+    for (const stepNumber of list(impact.steps)) {
+      if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+      claims.set(stepNumber, 1);
+    }
+  }
+  return [...claims.values()].every((count) => count === 1);
+};
+
 export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accepted, truncated = false }) {
   if (!Array.isArray(impacts)) throw new TypeError("impacts must be an array");
   if (!(accepted instanceof Set)) throw new TypeError("accepted must be a Set");
+  if (!completeInputs(list(steps), impacts)) {
+    throw new TypeError("buildBrief requires a complete visible review");
+  }
 
   const names = new Map(list(nodes).map((node) => [node.id, node.name || node.id]));
   for (const impact of impacts) {
@@ -79,10 +100,10 @@ export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accept
     }
   }
 
-  const grouped = (level, projectFallback = false) => {
+  const grouped = (level) => {
     const groups = new Map();
     for (const impact of kept.filter((entry) => entry.level === level)) {
-      const target = impact.targetId ? nameOf(impact.targetId) : projectFallback ? "Project Support" : "Needs placement";
+      const target = impact.targetId ? nameOf(impact.targetId) : "System";
       if (!groups.has(target)) groups.set(target, []);
       groups.get(target).push(impact);
     }
@@ -102,19 +123,6 @@ export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accept
     out.push("");
   }
 
-  const supporting = grouped("support", true);
-  if (supporting.size) {
-    out.push("SUPPORTING WORK");
-    for (const [target, group] of supporting) {
-      out.push(`  ${target}`);
-      for (const impact of group) {
-        out.push(`    ${describe(impact)}`);
-        pushCitations(impact, "      ");
-      }
-    }
-    out.push("");
-  }
-
   if (cut.length) {
     out.push("OUT OF SCOPE", "  The user removed these. Do not build them.");
     for (const impact of cut) {
@@ -124,22 +132,10 @@ export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accept
     out.push("");
   }
 
-  const unresolved = kept.filter((impact) => impact.level === "unresolved");
-  if (unresolved.length) {
-    out.push("NEEDS REVIEW", "  Confirm the intended component before inferring missing scope.");
-    for (const impact of unresolved) {
-      out.push(`  ${describe(impact)}`);
-      pushCitations(impact, "    ");
-    }
-    out.push("");
-  }
-
   const involved = new Set();
   for (const impact of kept) {
     if (impact.level === "system" && impact.targetId) involved.add(impact.targetId);
-    if ((impact.level === "component" || impact.level === "support") && impact.targetId) {
-      involved.add(impact.targetId);
-    }
+    if (impact.level === "component" && impact.targetId) involved.add(impact.targetId);
     for (const addition of list(impact.additions)) involved.add(addition.id);
     for (const removal of list(impact.removals)) involved.add(removal.id);
     for (const responsibility of list(impact.responsibilities)) involved.add(responsibility.id);

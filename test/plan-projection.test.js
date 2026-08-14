@@ -100,7 +100,7 @@ test("system additions and proposed connections project at the root", () => {
   );
 });
 
-test("validated projections never point at an invalidated proposed component", () => {
+test("invalidated proposed endpoints fail placement without a partial projection", () => {
   const steps = [
     { n: 1, text: "Add a limiter and connect it to a missing component." },
     { n: 2, text: "Implement the limiter internals." },
@@ -120,9 +120,11 @@ test("validated projections never point at an invalidated proposed component", (
   }, NODES, EDGES);
   const reachable = new Set([...NODES.map((node) => node.id), ...projection.nodes.map((node) => node.id)]);
 
+  assert.deepEqual(validated.impacts, []);
+  assert.deepEqual(projection.nodes, []);
+  assert.deepEqual(projection.edges, []);
   assert.ok(projection.nodes.every((node) => node.parent === null || reachable.has(node.parent)));
   assert.ok(projection.edges.every((edge) => reachable.has(edge.from) && reachable.has(edge.to)));
-  assert.deepEqual(validated.impacts.flatMap((entry) => entry.steps).sort((a, b) => a - b), [1, 2]);
 });
 
 test("removal, responsibility, and disconnection operations annotate persisted items", () => {
@@ -261,13 +263,25 @@ test("a failed analysis keeps unresolved bookkeeping out of the graph", () => {
   assert.deepEqual(projected.nodes, []);
 });
 
-test("failed, partial, and ready reviews expose their temporary projection", () => {
+test("only a complete ready review exposes its temporary projection", () => {
   assert.equal(typeof planProjectionModule.planProjectionVisible, "function");
-  for (const status of ["error", "partial", "ready"]) {
-    assert.equal(planProjectionModule.planProjectionVisible({ status }), true, status);
-  }
-  for (const status of ["working", "resolved", "skipped", ""]) {
-    assert.equal(planProjectionModule.planProjectionVisible({ status }), false, status);
+  const complete = review("review-complete", [
+    impact({ key: "impact:1", steps: [1] }),
+    impact({ key: "impact:2", level: "system", steps: [2] }),
+    impact({ key: "impact:3", steps: [3] }),
+    impact({ key: "impact:4", steps: [4] }),
+  ]);
+  assert.equal(planProjectionModule.planProjectionVisible(complete), true);
+  for (const current of [
+    { ...complete, status: "error" },
+    { ...complete, status: "partial" },
+    { ...complete, status: "working" },
+    { ...complete, status: "resolved" },
+    { ...complete, status: "skipped" },
+    { ...complete, status: "" },
+    review("review-incomplete", [impact({ steps: [1] })]),
+  ]) {
+    assert.equal(planProjectionModule.planProjectionVisible(current), false, current.status);
   }
   assert.equal(planProjectionModule.planProjectionVisible(null), false);
 });
