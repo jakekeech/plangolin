@@ -277,6 +277,78 @@ test("live runner executes declared failure scenarios locally without model call
   assert.equal(result.decision, "not-evaluated", "local failure checks are not live evidence");
 });
 
+test("local failure cases do not change semantic quality aggregates", async () => {
+  const semanticCase = corpusCase();
+  const failureCase = corpusCase({
+    id: "timeout-response",
+    execution: { scenario: "timeout" },
+    expected: { failureClass: "timeout" },
+  });
+  const call = async ({ contextKind, effort }) => {
+    const targetId = contextKind === "named" ? "auth" : "group:auth";
+    return {
+      parsed: { impacts: [
+        impact({ targetId }),
+        impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
+      ] },
+      appliedEffort: effort,
+      evidence: "live-model",
+    };
+  };
+  const semanticOnly = await runLiveEvaluation({ cases: [semanticCase], call, repeats: 2 });
+  const withLocalFailure = await runLiveEvaluation({
+    cases: [semanticCase, failureCase], call, repeats: 2,
+  });
+
+  const semanticMetrics = [
+    "clientCoverage", "rawCoverage", "generatedUnresolvedFallbacks",
+    "falseStructuralOperations", "falseNoArchitectureConclusions", "invalidOperations",
+    "droppedProposals", "categoryAccuracy", "targetAccuracy", "targetCategoryAccuracy",
+    "evidenceAccuracy", "repeatAgreement",
+  ];
+  for (const key of Object.keys(semanticOnly.variants)) {
+    for (const metricName of semanticMetrics) {
+      assert.deepEqual(
+        withLocalFailure.variants[key][metricName],
+        semanticOnly.variants[key][metricName],
+        `${key} ${metricName}`,
+      );
+    }
+    assert.equal(withLocalFailure.variants[key].expectedFailureChecks, 2);
+    assert.equal(withLocalFailure.variants[key].expectedFailureMatches, 2);
+  }
+});
+
+test("local failure declarations fail closed for unknown, missing, and mismatched scenarios", async () => {
+  const invalidCases = [
+    corpusCase({
+      id: "unknown-failure-class",
+      execution: { scenario: "service" },
+      expected: { failureClass: "service" },
+    }),
+    corpusCase({ id: "missing-failure-scenario", expected: { failureClass: "service" } }),
+    corpusCase({
+      id: "mismatched-failure-scenario",
+      execution: { scenario: "quota" },
+      expected: { failureClass: "timeout" },
+    }),
+  ];
+  let calls = 0;
+  const result = await runLiveEvaluation({
+    cases: invalidCases,
+    repeats: 1,
+    call: async () => { calls++; throw new Error("failure declarations must stay local"); },
+  });
+
+  assert.equal(calls, 0);
+  for (const metrics of Object.values(result.variants)) {
+    assert.equal(metrics.expectedFailureChecks, 3);
+    assert.equal(metrics.expectedFailureMatches, 0);
+  }
+  assert.equal(result.gate.passed, false);
+  assert.ok(result.gate.reasons.some((reason) => /failure-handling scenarios/i.test(reason)));
+});
+
 test("separate effort URLs run against the ordinary service response contract", async () => {
   const urls = [];
   const requestBodies = [];
@@ -324,6 +396,50 @@ test("separate effort URLs run against the ordinary service response contract", 
     verifiedLiveModelCalls: 8,
     requiredLiveModelCalls: 8,
   });
+});
+
+test("ordinary effort URLs reject whitespace-only provider or model identity", async () => {
+  for (const identity of [
+    { provider: "   ", model: "live-model" },
+    { provider: "live-provider", model: "\n\t" },
+  ]) {
+    const lines = [];
+    await main({
+      env: {
+        PLANGOLIN_EVAL_LIVE: "1",
+        PLANGOLIN_EVAL_HIGH_URL: "https://high-effort.example",
+        PLANGOLIN_EVAL_MEDIUM_URL: "https://medium-effort.example",
+        PLANGOLIN_EVAL_REPEATS: "2",
+      },
+      cases: [corpusCase()],
+      stdout: { write(chunk) { lines.push(String(chunk)); } },
+      fetchImpl: async (_url, options) => {
+        const prompt = JSON.parse(options.body).prompt;
+        const targetId = prompt.includes("group:auth") ? "group:auth" : "auth";
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              parsed: { impacts: [
+                impact({ targetId }),
+                impact({ level: "support", targetId, steps: [2] }),
+              ] },
+              ...identity,
+            };
+          },
+        };
+      },
+    });
+
+    const output = JSON.parse(lines.join(""));
+    assert.equal(output.decision, "not-evaluated");
+    assert.deepEqual(output.evidence, {
+      verifiedLiveModelCalls: 0,
+      requiredLiveModelCalls: 8,
+    });
+    assert.equal(output.variants["provisional-high"].unexpectedFailures, 2);
+  }
 });
 
 test("separate effort URL attestation rejects one shared service URL", async () => {

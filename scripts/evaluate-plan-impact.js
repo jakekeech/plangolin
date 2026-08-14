@@ -125,33 +125,28 @@ export function scoreCase(testCase, raw, { contextKind = "named" } = {}) {
 }
 
 function failureScore(testCase, failureClass) {
-  const total = list(testCase.steps).length;
   const expected = testCase.expected?.failureClass;
   return {
     caseId: testCase.id,
-    clientCoverage: coverageMetric(total, total),
-    rawCoverage: coverageMetric(0, total),
-    generatedUnresolvedFallbacks: total,
-    falseStructuralOperations: 0,
-    falseNoArchitectureConclusions: 0,
-    invalidOperations: 0,
-    droppedProposals: 0,
-    categoryAccuracy: metric(0, 0),
-    targetAccuracy: metric(0, 0),
-    targetCategoryAccuracy: metric(0, 0),
-    evidenceAccuracy: metric(0, 0),
-    expectedFailureChecks: 1,
-    expectedFailureMatches: expected === failureClass ? 1 : 0,
+    expectedFailureChecks: expected ? 1 : 0,
+    expectedFailureMatches: expected && LOCAL_FAILURE_SCENARIOS.has(expected) &&
+      LOCAL_FAILURE_SCENARIOS.has(failureClass) && expected === failureClass ? 1 : 0,
     unexpectedFailures: expected ? 0 : 1,
-    semanticSignature: `failure:${failureClass}`,
+    failureSignature: `failure:${failureClass || "invalid-declaration"}`,
   };
 }
 
 function repeatAgreementForScores(scores) {
-  if (scores.length < 2) return { agreements: 0, comparisons: 0, ratio: 1 };
-  const first = scores[0].semanticSignature;
-  const agreements = scores.slice(1).filter((score) => score.semanticSignature === first).length;
-  return { agreements, comparisons: scores.length - 1, ratio: agreements / (scores.length - 1) };
+  const semanticScores = scores.filter((score) => typeof score.semanticSignature === "string");
+  if (semanticScores.length < 2) return { agreements: 0, comparisons: 0, ratio: 1 };
+  const first = semanticScores[0].semanticSignature;
+  const agreements = semanticScores.slice(1)
+    .filter((score) => score.semanticSignature === first).length;
+  return {
+    agreements,
+    comparisons: semanticScores.length - 1,
+    ratio: agreements / (semanticScores.length - 1),
+  };
 }
 
 export function scoreRepeatAgreement(testCase, responses, options) {
@@ -264,10 +259,7 @@ export async function runLiveEvaluation({ cases, call, repeats = 2 }) {
         for (let run = 0; run < repeats; run++) {
           if (testCase.expected?.failureClass) {
             const declared = testCase.execution?.scenario;
-            repeatedScores.push(failureScore(
-              testCase,
-              LOCAL_FAILURE_SCENARIOS.has(declared) ? declared : "service",
-            ));
+            repeatedScores.push(failureScore(testCase, declared));
             continue;
           }
           const requiresLiveEvidence = !testCase.expected?.failureClass &&
@@ -409,8 +401,8 @@ function createLiveCall({ env, fetchImpl }) {
         body: { installId: "plan-impact-evaluation", prompt },
         fetchImpl,
       });
-      if (typeof data.provider !== "string" || !data.provider ||
-          typeof data.model !== "string" || !data.model) {
+      if (typeof data.provider !== "string" || data.provider.trim().length === 0 ||
+          typeof data.model !== "string" || data.model.trim().length === 0) {
         const error = new Error("evaluation service did not identify its live model");
         error.evaluationClass = "malformed";
         throw error;
