@@ -8,8 +8,8 @@ const CITE_CHARS = 80;
 
 const list = (value) => Array.isArray(value) ? value : [];
 
-const completeInputs = (steps, impacts) => {
-  if (!steps.length || !impacts.length) return false;
+const completeInputs = (steps, impacts, unmappedSteps) => {
+  if (!steps.length) return false;
   if (impacts.some((impact) => !impact ||
     (impact.level !== "system" && impact.level !== "component"))) return false;
   const claims = new Map();
@@ -23,13 +23,19 @@ const completeInputs = (steps, impacts) => {
       claims.set(stepNumber, 1);
     }
   }
+  for (const stepNumber of unmappedSteps) {
+    if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+    claims.set(stepNumber, 1);
+  }
   return [...claims.values()].every((count) => count === 1);
 };
 
-export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accepted, truncated = false }) {
+export function buildBrief({
+  nodes = [], steps = [], impacts, unmappedSteps = [], reach = [], accepted, truncated = false,
+}) {
   if (!Array.isArray(impacts)) throw new TypeError("impacts must be an array");
   if (!(accepted instanceof Set)) throw new TypeError("accepted must be a Set");
-  if (!completeInputs(list(steps), impacts)) {
+  if (!completeInputs(list(steps), impacts, list(unmappedSteps))) {
     throw new TypeError("buildBrief requires a complete visible review");
   }
 
@@ -128,6 +134,18 @@ export function buildBrief({ nodes = [], steps = [], impacts, reach = [], accept
     for (const impact of cut) {
       out.push(`  ✗ ${describe(impact)}`);
       pushCitations(impact, "    ");
+    }
+    out.push("");
+  }
+
+  if (list(unmappedSteps).length) {
+    out.push(
+      "NOT REPRESENTED ON MAP",
+      "  These plan steps were not accepted or rejected in Plangolin. Review them directly.",
+    );
+    for (const step of list(unmappedSteps)) {
+      const text = trim(stepText.get(step) || "", CITE_CHARS);
+      out.push(`  ? ${text || `Plan step ${step}`}`);
     }
     out.push("");
   }

@@ -2508,6 +2508,21 @@ import { createRolledLoader } from "./rolled-loader.js";
         reach: reachFor(rawIds),
       };
     });
+    const unmapped = (plan.unmappedSteps || []).filter((number) => byStep.has(number));
+    if (unmapped.length) {
+      out.push({
+        unmapped: true,
+        mark: "?",
+        name: "Not represented on map",
+        why: "These steps do not map cleanly to a component or connection.",
+        size: "",
+        steps: unmapped,
+        stepTexts: unmapped.map((number) => ({ number, text: byStep.get(number) || "" })),
+        files: [], symbols: [], lit: [], reach: [],
+        detail: "They remain in the written plan for direct review.",
+        where: "Outside the system map",
+      });
+    }
     out.push({ summary: true, lit: [] });
     return out;
   }
@@ -2544,6 +2559,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   const cap = (x) => String(x || "").charAt(0).toUpperCase() + String(x || "").slice(1);
 
   function planSaysWhat(s) {
+    if (s.unmapped) return cap(s.why);
     if (s.impact.level === "component") return cap(s.why || "This changes work inside the component.");
     return cap(s.why || "This changes the system structure.");
   }
@@ -2559,9 +2575,9 @@ import { createRolledLoader } from "./rolled-loader.js";
     const warning = document.getElementById("plan-warning");
     const busy = planSending;
 
-    keep.hidden = !controls.keep || stage === "summary";
-    cut.hidden = !controls.cut || stage === "summary";
-    approve.hidden = !controls.approve || stage === "step";
+    keep.hidden = !controls.keep || stage !== "step";
+    cut.hidden = !controls.cut || stage !== "step";
+    approve.hidden = !controls.approve || stage !== "summary";
     retry.hidden = !controls.retry;
     skip.hidden = !controls.skip;
     nav.hidden = !controls.navigation;
@@ -2663,8 +2679,8 @@ import { createRolledLoader } from "./rolled-loader.js";
     const keep = document.getElementById("plan-keep");
     const evidence = document.getElementById("plan-evidence");
     if (s.summary) {
-      const kept = list.filter((x) => !x.summary && !planCut.has(x.key)).length;
-      const gone = list.filter((x) => !x.summary && planCut.has(x.key)).length;
+      const kept = list.filter((x) => x.key && !planCut.has(x.key)).length;
+      const gone = list.filter((x) => x.key && planCut.has(x.key)).length;
       document.getElementById("plan-mark").textContent = "";
       document.getElementById("plan-nm").textContent = "That's everything";
       document.getElementById("plan-size").textContent = "";
@@ -2699,7 +2715,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-quote").innerHTML = detailParts
         ? "<details><summary>Details</summary>" + detailParts + "</details>"
         : "";
-      renderPlanControls("step", renderState.controls);
+      renderPlanControls(s.unmapped ? "unmapped" : "step", renderState.controls);
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
     }
@@ -3076,7 +3092,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         // command waiting on it can read the brief, but there is nothing left to
         // show and reopening the panel over a decision already sent would be a
         // question asked twice.
-        plan = review && (["working", "thinking", "ready", "partial", "error"].includes(review.status))
+        plan = review && (["working", "thinking", "ready", "error"].includes(review.status))
           ? review : null;
         // A new review starts with everything accepted. Rejecting is the
         // deliberate act; requiring a click per block to approve a plan you
@@ -5500,7 +5516,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       } catch (e) {}
 
       const reviewLive = !!review &&
-        ["working", "thinking", "ready", "partial", "error"].includes(review.status);
+        ["working", "thinking", "ready", "error"].includes(review.status);
       const hasCode = !!(dirs.dirs && dirs.dirs.length);
       if (reviewLive) {
         /* Nothing. Every splash below says some version of "there is nothing to

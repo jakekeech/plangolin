@@ -3,7 +3,7 @@
 // former owns component identity, while the latter exists only for this review.
 
 import { splitSteps, stepCount } from "./plan-steps.js";
-import { planImpact, remapImpactTargets, validateImpacts } from "./plan-impact.js";
+import { planImpact, validateImpacts } from "./plan-impact.js";
 import { buildBrief } from "./plan-brief.js";
 import { planReach } from "./plan-reach.js";
 import { load, saveIfEmpty, docFromMoves } from "./schema.js";
@@ -13,7 +13,6 @@ import {
   discoverProject,
   nameProject,
   movesFromDiscovery,
-  provisionalImpactContext,
 } from "./adopt.js";
 import {
   readPreparation,
@@ -21,6 +20,8 @@ import {
   followPreparation,
 } from "./preparation.js";
 
+// Compatibility for callers that inspect the old experiment switch. The
+// runtime path is now always sequential and does not read this value.
 export const COLD_IMPACT_CONCURRENCY = false;
 export const MAX_BROWSER_COUNT = 1_000_000;
 export const MAX_BROWSER_NOTE_LENGTH = 500;
@@ -30,7 +31,6 @@ const WORKING_PHASES = new Set([
   "mapping_project",
   "grouping_components",
   "naming_components",
-  "naming_and_matching",
   "matching_plan",
   "arranging_review",
 ]);
@@ -45,11 +45,7 @@ const boundedCount = (value) => Number.isFinite(value)
 const boundedNote = (value) => (typeof value === "string" ? value : "")
   .replace(/\s+/g, " ").trim().slice(0, MAX_BROWSER_NOTE_LENGTH);
 
-const placementError = () => {
-  const error = new Error("Plangolin could not place every change on this system map.");
-  error.userFacing = true;
-  return error;
-};
+const invalidReviewError = () => new Error("plangolin's impact service returned an invalid response.");
 
 const sheetNodes = (nodes) => (Array.isArray(nodes) ? nodes : [])
   .filter((node) => node && typeof node === "object" && typeof node.id === "string");
@@ -58,7 +54,8 @@ const completeReadyReview = (candidate) => {
   if (!candidate || candidate.status !== "ready") return false;
   const steps = Array.isArray(candidate.steps) ? candidate.steps : [];
   const impacts = Array.isArray(candidate.impacts) ? candidate.impacts : [];
-  if (!steps.length || !impacts.length) return false;
+  const unmappedSteps = Array.isArray(candidate.unmappedSteps) ? candidate.unmappedSteps : [];
+  if (!steps.length) return false;
   if (impacts.some((entry) => !entry ||
     (entry.level !== "system" && entry.level !== "component"))) return false;
 
@@ -74,6 +71,10 @@ const completeReadyReview = (candidate) => {
       claims.set(stepNumber, 1);
     }
   }
+  for (const stepNumber of unmappedSteps) {
+    if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+    claims.set(stepNumber, 1);
+  }
   return [...claims.values()].every((count) => count === 1);
 };
 
@@ -84,9 +85,9 @@ const truncationNote = (review) => review.truncated
 const browserState = (review) => {
   if (!review) return null;
   const {
-    id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, note, edges,
+    id, status, phase, revision, elapsedMs, counts, steps, impacts, unmappedSteps, reach, note, edges,
   } = review;
-  return { id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, mapEdges: edges, note };
+  return { id, status, phase, revision, elapsedMs, counts, steps, impacts, unmappedSteps, reach, mapEdges: edges, note };
 };
 
 async function keepScan(ws, moves) {
@@ -137,11 +138,8 @@ export function createPlanStore(dependencies = {}) {
     discoverProject,
     nameProject,
     movesFromDiscovery,
-    provisionalImpactContext,
-    remapImpactTargets,
     validateImpacts,
     impact: planImpact,
-    coldImpactConcurrency: COLD_IMPACT_CONCURRENCY,
     ...dependencies,
   };
 
@@ -203,9 +201,10 @@ export function createPlanStore(dependencies = {}) {
   const completeAttempt = (token, result) => {
     if (!isCurrentAttempt(token) || review.status !== "working") return false;
     const impacts = Array.isArray(result?.impacts) ? result.impacts : [];
-    const complete = result?.outcome === "ready" && result?.coverage?.complete === true &&
-      completeReadyReview({ status: "ready", steps: review.steps, impacts });
-    if (!complete) return failAttempt(token, placementError());
+    const unmappedSteps = Array.isArray(result?.unmappedSteps) ? result.unmappedSteps : [];
+    const complete = result?.outcome === "ready" &&
+      completeReadyReview({ status: "ready", steps: review.steps, impacts, unmappedSteps });
+    if (!complete) return failAttempt(token, invalidReviewError());
 
     publish({ phase: "arranging_review" });
     review.diagnostics = result.diagnostics || {};
@@ -213,6 +212,7 @@ export function createPlanStore(dependencies = {}) {
     publish({
       status: "ready",
       impacts,
+      unmappedSteps,
       reach: planReach(review.edges, changedIds(impacts)),
       note: truncationNote(review),
     });
@@ -234,6 +234,7 @@ export function createPlanStore(dependencies = {}) {
     publish({
       status: "error",
       impacts: generated.impacts,
+      unmappedSteps: generated.unmappedSteps,
       reach: [],
       note: [truncationNote(review), message].filter(Boolean).join(" "),
     });
@@ -255,25 +256,7 @@ export function createPlanStore(dependencies = {}) {
     });
     const name = options.nameProject || deps.nameProject;
     const movesFrom = options.movesFromDiscovery || deps.movesFromDiscovery;
-    const concurrent = options.coldImpactConcurrency ?? deps.coldImpactConcurrency;
-    let described;
-    let provisional = null;
-    if (concurrent) {
-      adoptionProgress(token, {
-        phase: "naming_and_matching",
-        counts: { components: discovery.flatGroups.length },
-      });
-      const naming = name(discovery, { onProgress });
-      adoptionProgress(token, { phase: "matching_plan" });
-      const matching = (options.impact || deps.impact)(
-        (options.provisionalImpactContext || deps.provisionalImpactContext)(discovery),
-        token.steps,
-        { deferValidation: true },
-      );
-      [described, provisional] = await Promise.all([naming, matching]);
-    } else {
-      described = await name(discovery, { onProgress });
-    }
+    const described = await name(discovery, { onProgress });
     const mapped = movesFrom(discovery, described);
     const finalMap = await useMoves(ws, {
       moves: mapped.moves,
@@ -281,32 +264,7 @@ export function createPlanStore(dependencies = {}) {
       provider: described.provider,
       model: described.model,
     });
-    if (!provisional) return finalMap;
-
-    const raw = provisional.raw || { impacts: provisional.impacts };
-    const remapped = (options.remapImpactTargets || deps.remapImpactTargets)(raw, mapped.idFor);
-    const validated = (options.validateImpacts || deps.validateImpacts)(remapped, {
-      nodes: finalMap.nodes,
-      edges: finalMap.edges,
-      steps: token.steps,
-    });
-    if (!validated.coverage.complete) {
-      const impactResult = await (options.impact || deps.impact)(
-        { nodes: finalMap.nodes, edges: finalMap.edges },
-        token.steps,
-        { initialValidation: validated },
-      );
-      return { ...finalMap, impactResult };
-    }
-    return {
-      ...finalMap,
-      impactResult: {
-        ...validated,
-        provider: provisional.provider,
-        model: provisional.model,
-        outcome: "ready",
-      },
-    };
+    return finalMap;
   };
 
   const acquireMap = async (ws, options, token) => {
@@ -357,7 +315,6 @@ export function createPlanStore(dependencies = {}) {
   const analyze = async (ws, token, options) => {
     let nodes = [];
     let edges = [];
-    let preparedImpact = null;
     if (isCurrentAttempt(token) && review.mapReady) {
       nodes = review.nodes;
       edges = review.edges;
@@ -378,7 +335,6 @@ export function createPlanStore(dependencies = {}) {
       const mapped = await mapWork;
       nodes = mapped.nodes;
       edges = mapped.edges;
-      preparedImpact = mapped.impactResult || null;
     } else if (!edges.length && nodes.length > 1) {
       // A saved map can predate a relationship reader (notably runtime-base
       // HTTP URLs). Repair only the missing review context from current code;
@@ -395,8 +351,8 @@ export function createPlanStore(dependencies = {}) {
       phase: "matching_plan",
       counts: { ...(scanning ? {} : { links: edges.length }), components: nodes.length },
     });
-    const result = preparedImpact || await (options.impact || deps.impact)({ nodes, edges }, token.steps);
-    if (!result || !Array.isArray(result.impacts) || !["ready", "partial"].includes(result.outcome)) {
+    const result = await (options.impact || deps.impact)({ nodes, edges }, token.steps);
+    if (!result || !Array.isArray(result.impacts) || result.outcome !== "ready") {
       throw new Error("plangolin's impact service returned a malformed response.");
     }
     completeAttempt(token, result);
@@ -413,6 +369,7 @@ export function createPlanStore(dependencies = {}) {
       status: "working",
       phase: "loading_system_map",
       impacts: [],
+      unmappedSteps: [],
       reach: [],
       note: truncationNote(review),
     });
@@ -447,6 +404,7 @@ export function createPlanStore(dependencies = {}) {
         plan: String(plan || ""),
         steps,
         impacts: [],
+        unmappedSteps: [],
         reach: [],
         note: "",
         nodes: [],
@@ -508,6 +466,7 @@ export function createPlanStore(dependencies = {}) {
         nodes: nodesForBrief,
         steps: review.steps,
         impacts: review.impacts,
+        unmappedSteps: review.unmappedSteps,
         reach: review.reach,
         accepted: acceptedKeys,
         truncated: review.truncated,
@@ -520,8 +479,7 @@ export function createPlanStore(dependencies = {}) {
     },
 
     retry(id, ws) {
-      const retryable = review && (review.status === "error" ||
-        ((review.status === "ready" || review.status === "partial") && !completeReadyReview(review)));
+      const retryable = review && review.status === "error";
       if (!review || review.id !== id || !retryable) return false;
       review.analysis = null;
       beginAttempt(ws, review.analysisOptions || {});

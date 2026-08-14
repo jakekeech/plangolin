@@ -1,10 +1,10 @@
 // Trust boundary for adaptive plan review. The hosted reply is deliberately
-// treated as untrusted: this module validates operations, repairs coverage,
+// treated as untrusted: this module validates operations, reports gaps,
 // and is the only place that assigns review-local identities.
 
 import { callTask } from "./llm.js";
 
-const LEVELS = ["system", "component", "support", "unresolved"];
+const LEVELS = ["system", "component"];
 const LEVEL_RANK = new Map([["system", 0], ["component", 1]]);
 const OPERATION_NAMES = [
   "additions", "removals", "responsibilities", "connections", "disconnections",
@@ -74,69 +74,23 @@ function safePath(value) {
   return parts.filter((part) => part && part !== ".").join("/");
 }
 
-function nodeOwnsFile(node, path) {
-  const paths = list(node?.anchor?.paths).map(safePath).filter(Boolean);
-  const dir = safePath(node?.anchor?.dir);
-  return paths.includes(path) || Boolean(dir && (path === dir || path.startsWith(`${dir}/`)));
-}
-
-function deepestSingleOwner(nodes, files) {
-  const safeFiles = [...new Set(list(files).map(safePath).filter(Boolean))];
-  if (!safeFiles.length) return "";
-
-  const parents = new Map(nodes.map((node) => [node.id, node.parent || ""]));
-  const depth = (id) => {
-    const seen = new Set([id]);
-    let result = 0;
-    for (let parent = parents.get(id); parent && !seen.has(parent); parent = parents.get(parent)) {
-      seen.add(parent);
-      result++;
-    }
-    return result;
-  };
-  const candidates = nodes.filter((node) =>
-    typeof node?.id === "string" && safeFiles.every((file) => nodeOwnsFile(node, file)));
-  if (!candidates.length) return "";
-  const deepest = Math.max(...candidates.map((node) => depth(node.id)));
-  const winners = candidates.filter((node) => depth(node.id) === deepest);
-  return winners.length === 1 ? winners[0].id : "";
-}
-
-function literalInSteps(value, stepNumbers, stepText) {
-  const normalize = (text) => text.replace(/\\/g, "/").toLowerCase();
-  const wanted = normalize(value);
-  return stepNumbers.some((n) => normalize(stepText.get(n) || "").includes(wanted));
-}
-
-function validateEvidence(raw, stepNumbers, stepText, diagnostics) {
+function validateEvidence(raw, diagnostics) {
   const files = [];
-  const ownerFiles = [];
   for (const value of list(raw.files)) {
     const path = safePath(value);
     if (!path) {
       diagnostics.issues.push({ code: "unsafe_path", field: "files" });
       continue;
     }
-    if (!literalInSteps(path, stepNumbers, stepText)) {
-      diagnostics.issues.push({ code: "unsupported_evidence", field: "files" });
-      continue;
-    }
-    if (!ownerFiles.includes(path)) {
-      ownerFiles.push(path);
-      if (files.length < MAX_EVIDENCE) files.push(path);
-    }
+    if (files.length < MAX_EVIDENCE && !files.includes(path)) files.push(path);
   }
 
   const symbols = [];
   for (const value of list(raw.symbols)) {
     const symbol = typeof value === "string" ? value.trim() : "";
-    if (!symbol || !literalInSteps(symbol, stepNumbers, stepText)) {
-      diagnostics.issues.push({ code: "unsupported_evidence", field: "symbols" });
-      continue;
-    }
-    if (symbols.length < MAX_EVIDENCE && !symbols.includes(symbol)) symbols.push(symbol);
+    if (symbol && symbols.length < MAX_EVIDENCE && !symbols.includes(symbol)) symbols.push(symbol);
   }
-  return { files, ownerFiles, symbols };
+  return { files, symbols };
 }
 
 function validateSteps(values, validSteps, diagnostics, sourceIndex) {
@@ -159,13 +113,12 @@ function validId(value) {
   return typeof value === "string" && /^[a-z][a-z0-9-]*$/.test(value);
 }
 
-function validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, diagnostics) {
+function validateAllAdditions(rawImpacts, existingIds, diagnostics) {
   const byImpact = new Map();
   const ids = new Set();
 
   rawImpacts.forEach((raw, sourceIndex) => {
     const additions = [];
-    const citedSteps = [...new Set(list(raw?.steps).filter((step) => validSteps.has(step)))];
     for (const addition of list(raw?.additions)) {
       if (!isObject(addition) || !validId(addition.id) || existingIds.has(addition.id) || ids.has(addition.id)) {
         diagnostics.invalidOperations++;
@@ -183,9 +136,6 @@ function validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, dia
       for (const value of list(addition.files)) {
         const path = safePath(value);
         if (!path) diagnostics.issues.push({ code: "unsafe_path", field: "addition.files", sourceIndex });
-        else if (!literalInSteps(path, citedSteps, stepText)) {
-          diagnostics.issues.push({ code: "unsupported_evidence", field: "addition.files", sourceIndex });
-        }
         else if (files.length < MAX_EVIDENCE && !files.includes(path)) files.push(path);
       }
       const rawDir = typeof addition.dir === "string" ? addition.dir.trim() : "";
@@ -208,18 +158,16 @@ function validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, dia
 
 function validateCandidates(rawImpacts, context) {
   const {
-    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics, nodes,
-    rejectedStepIds,
+    additions, existingIds, knownIds, existingEdges, validSteps, diagnostics,
   } = context;
 
   return rawImpacts.map((rawValue, sourceIndex) => {
     const raw = isObject(rawValue) ? rawValue : {};
     const steps = validateSteps(raw.steps, validSteps, diagnostics, sourceIndex);
-    const { ownerFiles, ...evidence } = validateEvidence(raw, steps, stepText, diagnostics);
+    const evidence = validateEvidence(raw, diagnostics);
     const originalLevel = raw.level;
     const targetIsString = typeof raw.targetId === "string";
     const rawTargetId = targetIsString ? raw.targetId : "";
-    const ownerId = targetIsString ? deepestSingleOwner(nodes, ownerFiles) : "";
     let level = originalLevel;
     let targetId = rawTargetId;
     let invalidImpact = false;
@@ -236,19 +184,10 @@ function validateCandidates(rawImpacts, context) {
         invalidImpact = true;
       }
     } else if (originalLevel === "component") {
-      if (!targetId && ownerId) targetId = ownerId;
       if (!targetId || !knownIds.has(targetId)) {
         diagnostics.issues.push({ code: "invalid_target", sourceIndex });
         invalidImpact = true;
       }
-    } else if (originalLevel === "support" && targetId && knownIds.has(targetId)) {
-      level = "component";
-    } else if (ownerId) {
-      level = "component";
-      targetId = ownerId;
-    } else {
-      diagnostics.issues.push({ code: "invalid_placement", sourceIndex });
-      invalidImpact = true;
     }
 
     const size = ["", "small", "substantial"].includes(raw.size) ? raw.size : "";
@@ -336,7 +275,6 @@ function validateCandidates(rawImpacts, context) {
         .includes(issue.code))) invalidImpact = true;
 
     if (invalidImpact) {
-      for (const step of steps) rejectedStepIds.add(step);
       return null;
     }
 
@@ -344,7 +282,7 @@ function validateCandidates(rawImpacts, context) {
   }).filter(Boolean);
 }
 
-function revalidateCandidateReferences(candidates, existingIds, diagnostics, rejectedStepIds) {
+function revalidateCandidateReferences(candidates, existingIds, diagnostics) {
   let validated = candidates;
   for (;;) {
     const reachableIds = new Set(existingIds);
@@ -361,7 +299,6 @@ function revalidateCandidateReferences(candidates, existingIds, diagnostics, rej
       if (!orphanTarget && !orphanConnections.length) return candidate;
       diagnostics.invalidOperations += orphanConnections.length;
       diagnostics.issues.push({ code: "orphan_reference", sourceIndex: candidate.sourceIndex });
-      for (const step of candidate.steps) rejectedStepIds.add(step);
       changed = true;
       return null;
     }).filter(Boolean);
@@ -369,7 +306,7 @@ function revalidateCandidateReferences(candidates, existingIds, diagnostics, rej
   }
 }
 
-function resolveStepConflicts(candidates, diagnostics, rejectedStepIds) {
+function resolveStepConflicts(candidates, diagnostics) {
   const owner = new Map();
   for (const candidate of candidates) {
     for (const step of candidate.steps) {
@@ -377,12 +314,10 @@ function resolveStepConflicts(candidates, diagnostics, rejectedStepIds) {
       if (!incumbent || LEVEL_RANK.get(candidate.level) < LEVEL_RANK.get(incumbent.level)) {
         if (incumbent) {
           diagnostics.conflicts++;
-          rejectedStepIds.add(step);
         }
         owner.set(step, candidate);
       } else {
         diagnostics.conflicts++;
-        rejectedStepIds.add(step);
       }
     }
   }
@@ -400,24 +335,19 @@ function resolveStepConflicts(candidates, diagnostics, rejectedStepIds) {
   return owned.filter((candidate) => candidate.steps.length);
 }
 
-function stepCoverage(impacts, steps, diagnostics, rejectedStepIds) {
-  const remainingClaims = new Map();
+function unmappedSteps(impacts, steps, rawUnmapped, diagnostics) {
+  const claims = new Map();
   for (const impact of impacts) {
-    for (const step of impact.steps) remainingClaims.set(step, (remainingClaims.get(step) || 0) + 1);
+    for (const step of impact.steps) claims.set(step, (claims.get(step) || 0) + 1);
   }
-  const rejected = [];
-  let claimed = 0;
+  const declared = new Set(list(rawUnmapped).filter((step) => Number.isInteger(step)));
+  const unmapped = [];
   for (const step of steps) {
-    const claims = remainingClaims.get(step.n) || 0;
-    if (claims) {
-      remainingClaims.set(step.n, claims - 1);
-      claimed++;
-    } else {
-      diagnostics.issues.push({ code: "missing_step", step: step.n });
-    }
-    if (!claims || rejectedStepIds.has(step.n)) rejected.push(step.n);
+    if (claims.has(step.n)) continue;
+    unmapped.push(step.n);
+    if (!declared.has(step.n)) diagnostics.issues.push({ code: "unmapped_step", step: step.n });
   }
-  return { rejectedSteps: rejected, claimed };
+  return unmapped;
 }
 
 function groupComponentImpacts(impacts) {
@@ -448,22 +378,21 @@ function groupComponentImpacts(impacts) {
   return out;
 }
 
-function assignTrustedKeys(validated, diagnostics, steps, rejectedStepIds) {
+function assignTrustedKeys(validated, diagnostics, steps, rawUnmapped = []) {
   const impacts = validated.map(({ sourceIndex: _sourceIndex, ...impact }, index) => ({
     key: `impact:${index + 1}`,
     ...impact,
   }));
-  const { rejectedSteps, claimed } = stepCoverage(impacts, steps, diagnostics, rejectedStepIds);
+  const gaps = unmappedSteps(impacts, steps, rawUnmapped, diagnostics);
   diagnostics.kept = countKept(impacts);
   return {
     impacts,
-    rejectedSteps,
+    unmappedSteps: gaps,
+    // Kept for the offline evaluation script; the live review no longer uses
+    // coverage as a success gate or retries gaps.
+    rejectedSteps: gaps,
+    coverage: { claimed: steps.length - gaps.length, total: steps.length, complete: gaps.length === 0 },
     diagnostics,
-    coverage: {
-      claimed,
-      total: steps.length,
-      complete: impacts.length > 0 && claimed === steps.length && rejectedSteps.length === 0,
-    },
   };
 }
 
@@ -506,22 +435,9 @@ export function buildImpactPrompt({ nodes = [], edges = [], groups = [] }, steps
   ].join("\n");
 }
 
-export function buildPlacementRetryPrompt(context, rejectedSteps, diagnostics) {
-  const choices = list(context?.nodes)
-    .map((node) => `${node.id} — ${node.name}${node.parent ? ` (inside ${node.parent})` : ""}`)
-    .join("\n");
-  const reasons = [...new Set(list(diagnostics?.issues)
-    .map((issue) => issue?.code)
-    .filter((code) => typeof code === "string" && /^[a-z][a-z0-9_]*$/.test(code)))]
-    .join(", ");
-  return [
-    buildImpactPrompt(context, rejectedSteps),
-    "",
-    `The previous placement was rejected: ${reasons || "incomplete coverage"}.`,
-    "Valid target choices:",
-    choices || "(none — declare a justified system addition)",
-    "Return every listed step as one system or component decision. Do not return support or unresolved.",
-  ].join("\n");
+/** Compatibility for the offline evaluator. Live review never calls this. */
+export function buildPlacementRetryPrompt(context, steps) {
+  return buildImpactPrompt(context, steps);
 }
 
 export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
@@ -532,21 +448,16 @@ export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
   };
   const existingIds = new Set(nodes.map((node) => node.id).filter((id) => typeof id === "string"));
   const validSteps = new Set(steps.map((step) => step.n));
-  const stepText = new Map(steps.map((step) => [step.n, String(step.text || "")]));
   const existingEdges = new Set(edges.map((edge) => `${edge.from}\0${edge.to}`));
-  const rejectedStepIds = new Set();
-
-  const additions = validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, diagnostics);
+  const additions = validateAllAdditions(rawImpacts, existingIds, diagnostics);
   const knownIds = new Set([...existingIds, ...additions.ids]);
   const candidates = revalidateCandidateReferences(validateCandidates(rawImpacts, {
-    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics, nodes,
-    rejectedStepIds,
-  }), existingIds, diagnostics, rejectedStepIds);
+    additions, existingIds, knownIds, existingEdges, validSteps, diagnostics,
+  }), existingIds, diagnostics);
   const owned = revalidateCandidateReferences(
-    resolveStepConflicts(candidates, diagnostics, rejectedStepIds), existingIds, diagnostics,
-    rejectedStepIds,
+    resolveStepConflicts(candidates, diagnostics), existingIds, diagnostics,
   );
-  return assignTrustedKeys(groupComponentImpacts(owned), diagnostics, steps, rejectedStepIds);
+  return assignTrustedKeys(groupComponentImpacts(owned), diagnostics, steps, raw?.unmappedSteps);
 }
 
 function mapId(value, idFor) {
@@ -586,58 +497,19 @@ function malformedResponseError() {
   return error;
 }
 
-function placementError() {
-  const error = new Error("Could not place every change in this plan. Review it by hand.");
-  error.userFacing = true;
-  error.validation = true;
-  return error;
-}
-
 function parsedImpacts(response) {
   return isObject(response) && isObject(response.parsed) && Array.isArray(response.parsed.impacts)
     ? response.parsed
     : null;
 }
 
-async function retryPlacement(context, steps, initialValidation, call) {
-  const rejectedNumbers = new Set(list(initialValidation?.rejectedSteps));
-  const rejectedSteps = steps.filter((step) => rejectedNumbers.has(step.n));
-  const response = await call({
-    task: "impact",
-    prompt: buildPlacementRetryPrompt(context, rejectedSteps, initialValidation?.diagnostics),
-  });
-  const repaired = parsedImpacts(response);
-  if (!repaired) throw placementError();
-
-  const retained = list(initialValidation?.impacts).map(({ key: _key, ...impact }) => impact);
-  const validated = validateImpacts({ impacts: [...retained, ...repaired.impacts] }, {
-    ...context,
-    steps,
-  });
-  if (!validated.coverage.complete) throw placementError();
-  return {
-    ...validated,
-    provider: response.provider,
-    model: response.model,
-    outcome: "ready",
-  };
-}
-
 export async function planImpact(context, steps, {
   call = callTask,
-  deferValidation = false,
-  initialValidation = null,
 } = {}) {
-  if (initialValidation) return retryPlacement(context, steps, initialValidation, call);
-
   const prompt = buildImpactPrompt(context, steps);
   const response = await call({ task: "impact", prompt });
   const parsed = parsedImpacts(response);
   if (!parsed) throw malformedResponseError();
-  if (deferValidation) {
-    return { raw: parsed, provider: response.provider, model: response.model };
-  }
   const validated = validateImpacts(parsed, { ...context, steps });
-  if (!validated.coverage.complete) return retryPlacement(context, steps, validated, call);
   return { ...validated, provider: response.provider, model: response.model, outcome: "ready" };
 }

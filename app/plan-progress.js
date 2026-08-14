@@ -1,6 +1,6 @@
 const MAX_COUNT = 1_000_000;
-const ACTIVE_STATUSES = new Set(["working", "ready", "partial", "error"]);
-const PLACEMENT_ERROR = "Plangolin could not place every change on this system map.";
+const ACTIVE_STATUSES = new Set(["working", "ready", "error"]);
+const REVIEW_ERROR = "Plangolin couldn't read this plan. You can retry or skip the review.";
 const list = (value) => Array.isArray(value) ? value : [];
 
 const boundedCount = (value) => Number.isFinite(value)
@@ -30,7 +30,8 @@ export function completeVisibleReview(review) {
   if (!review || review.status !== "ready") return false;
   const steps = list(review.steps);
   const impacts = list(review.impacts);
-  if (!steps.length || !impacts.length) return false;
+  const unmappedSteps = list(review.unmappedSteps);
+  if (!steps.length) return false;
   if (impacts.some((impact) => !impact ||
     (impact.level !== "system" && impact.level !== "component"))) return false;
 
@@ -44,6 +45,10 @@ export function completeVisibleReview(review) {
       if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
       claims.set(stepNumber, 1);
     }
+  }
+  for (const stepNumber of unmappedSteps) {
+    if (!claims.has(stepNumber) || claims.get(stepNumber) !== 0) return false;
+    claims.set(stepNumber, 1);
   }
   return [...claims.values()].every((count) => count === 1);
 }
@@ -60,9 +65,6 @@ export function planProgressCopy(review) {
       return "Grouping those files into components";
     case "naming_components":
       return "Naming " + plural(components, "component");
-    case "naming_and_matching":
-      return "Naming " + plural(components, "component") + " and matching " +
-        plural(steps, "plan step");
     case "loading_system_map":
       return "Loading your system map";
     case "matching_plan":
@@ -75,7 +77,7 @@ export function planProgressCopy(review) {
 }
 
 export function planSummary(review, projection, nodes) {
-  if (review && !completeVisibleReview(review)) return PLACEMENT_ERROR;
+  if (review && !completeVisibleReview(review)) return REVIEW_ERROR;
 
   const impacts = list(review && review.impacts);
   const projectedNodes = list(projection && projection.nodes);
@@ -88,7 +90,11 @@ export function planSummary(review, projection, nodes) {
     .map((node) => [node.sourceId, node.name]));
   const nameOf = (id) => sourceNames.get(id) || byId.get(id)?.name || id;
   const stepCount = boundedCount(list(review && review.steps).length || review?.counts?.steps);
-  const reviewed = plural(stepCount, "plan step") + " reviewed.";
+  const unmappedCount = list(review && review.unmappedSteps).length;
+  const reviewed = unmappedCount
+    ? plural(stepCount - unmappedCount, "plan step") + " mapped; " +
+      plural(unmappedCount, "step") + " not represented on the map."
+    : plural(stepCount, "plan step") + " mapped.";
 
   const additions = projectedNodes
     .filter((node) => node.planType === "addition")
@@ -136,8 +142,8 @@ export function planPollDelay(review) {
 export function planControlState(review) {
   const status = review && review.status || "";
   const reviewable = completeVisibleReview(review);
-  const retryable = status === "error" || status === "partial" ||
-    (status === "ready" && !reviewable);
+  const retryable = status === "error";
+  const unmapped = list(review && review.unmappedSteps).length;
   return {
     keep: reviewable,
     cut: reviewable,
@@ -145,7 +151,9 @@ export function planControlState(review) {
     retry: retryable,
     skip: retryable,
     navigation: reviewable,
-    warning: "",
+    warning: reviewable && unmapped
+      ? plural(unmapped, "plan step") + " could not be represented on this map."
+      : "",
   };
 }
 
