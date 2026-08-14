@@ -10,6 +10,7 @@ import {
   scoreRepeatAgreement,
   summarizeScores,
 } from "../scripts/evaluate-plan-impact.js";
+import { buildImpactPrompt } from "../src/plan-impact.js";
 
 const operationLists = () => ({
   additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
@@ -255,33 +256,25 @@ test("live runner rejects a service that does not acknowledge the requested effo
   }), /did not acknowledge/i);
 });
 
-test("live runner records an unexpected success for every failure-labeled case run", async () => {
+test("live runner executes declared failure scenarios locally without model calls", async () => {
   const failureCase = corpusCase({
     id: "malformed-response",
+    execution: { scenario: "malformed" },
     expected: { failureClass: "malformed" },
   });
+  let calls = 0;
   const result = await runLiveEvaluation({
-    cases: [corpusCase(), failureCase],
+    cases: [failureCase],
     repeats: 2,
-    call: async ({ contextKind, effort }) => {
-      const targetId = contextKind === "named" ? "auth" : "group:auth";
-      return {
-        parsed: { impacts: [
-          impact({ targetId }),
-          impact({ level: "support", targetId, steps: [2], title: "Test authentication" }),
-        ] },
-        appliedEffort: effort,
-        evidence: "live-model",
-      };
-    },
+    call: async () => { calls++; throw new Error("declared failures must stay local"); },
   });
 
+  assert.equal(calls, 0);
   for (const metrics of Object.values(result.variants)) {
     assert.equal(metrics.expectedFailureChecks, 2);
-    assert.equal(metrics.expectedFailureMatches, 0);
+    assert.equal(metrics.expectedFailureMatches, 2);
   }
-  assert.equal(result.decision, "fail");
-  assert.ok(result.gate.reasons.some((reason) => /failure-handling scenarios/i.test(reason)));
+  assert.equal(result.decision, "not-evaluated", "local failure checks are not live evidence");
 });
 
 test("separate effort URLs run against the ordinary service response contract", async () => {
@@ -344,6 +337,134 @@ test("separate effort URL attestation rejects one shared service URL", async () 
     fetchImpl: async () => { throw new Error("must reject before fetch"); },
     stdout: { write() {} },
   }), /distinct/i);
+});
+
+test("effort URL validation rejects credentials, queries, and fragments before fetch", async () => {
+  for (const unsafe of [
+    "https://user:secret@high.example",
+    "https://high.example?effort=high",
+    "https://high.example#high",
+  ]) {
+    let fetches = 0;
+    await assert.rejects(() => main({
+      env: {
+        PLANGOLIN_EVAL_LIVE: "1",
+        PLANGOLIN_EVAL_HIGH_URL: unsafe,
+        PLANGOLIN_EVAL_MEDIUM_URL: "https://medium.example",
+      },
+      cases: [corpusCase()],
+      fetchImpl: async () => { fetches++; throw new Error("must reject before fetch"); },
+      stdout: { write() {} },
+    }), /credentials|query|fragment/i);
+    assert.equal(fetches, 0);
+  }
+});
+
+test("effort URL validation compares canonical root impact endpoints", async () => {
+  let fetches = 0;
+  await assert.rejects(() => main({
+    env: {
+      PLANGOLIN_EVAL_LIVE: "1",
+      PLANGOLIN_EVAL_HIGH_URL: "https://EXAMPLE.com:443/high-instance",
+      PLANGOLIN_EVAL_MEDIUM_URL: "https://example.com/medium-instance/../medium",
+    },
+    cases: [corpusCase()],
+    fetchImpl: async () => { fetches++; throw new Error("must reject before fetch"); },
+    stdout: { write() {} },
+  }), /distinct/i);
+  assert.equal(fetches, 0);
+});
+
+function expectedResponse(testCase, contextKind) {
+  const provisional = contextKind === "provisional";
+  const reverseIds = new Map(Object.entries(testCase.contexts.provisional.idFor || {})
+    .map(([temporary, final]) => [final, temporary]));
+  const mappedId = (id) => provisional ? reverseIds.get(id) || id : id;
+  const operations = operationLists();
+  for (const identity of testCase.expected.allowedStructuralOperations || []) {
+    const [name, value] = identity.split(":");
+    if (name === "additions") operations.additions.push({
+      id: value, name: `Proposed ${value}`, kind: "", intent: `Owns ${value} work.`,
+      dir: "", files: [],
+    });
+    else if (name === "removals") operations.removals.push({ id: mappedId(value) });
+    else if (name === "responsibilities") operations.responsibilities.push({
+      id: mappedId(value), intent: `Owns updated ${value} work.`, why: "The plan changes its role.",
+    });
+    else {
+      const [from, to] = value.split(">");
+      operations[name].push({ from: mappedId(from), to: mappedId(to), label: "uses" });
+    }
+  }
+  return { impacts: testCase.expected.placements.map((placement, index) => ({
+    level: placement.levels[0],
+    targetId: mappedId(placement.allowedTargets?.[0] || ""),
+    title: `Evaluate ${testCase.id} ${index + 1}`,
+    why: "Matches the semantic predicate.",
+    size: placement.levels[0] === "unresolved" ? "" : "small",
+    steps: placement.steps,
+    files: placement.requiredFiles || [],
+    symbols: [],
+    ...operationLists(),
+    ...(index === 0 ? operations : {}),
+  })) };
+}
+
+test("full corpus runs through ordinary effort URLs and passes only correct semantic outputs", async () => {
+  const cases = JSON.parse(await readFile(
+    new URL("../evaluation/plan-impact/cases.json", import.meta.url), "utf8",
+  ));
+  const responseByPrompt = new Map();
+  for (const testCase of cases.filter((entry) => !entry.expected.failureClass)) {
+    for (const contextKind of ["named", "provisional"]) {
+      responseByPrompt.set(
+        buildImpactPrompt(testCase.contexts[contextKind], testCase.steps),
+        expectedResponse(testCase, contextKind),
+      );
+    }
+  }
+  const run = async ({ breakCase = false } = {}) => {
+    const lines = [];
+    let fetches = 0;
+    await main({
+      env: {
+        PLANGOLIN_EVAL_LIVE: "1",
+        PLANGOLIN_EVAL_HIGH_URL: "http://127.0.0.1:8787",
+        PLANGOLIN_EVAL_MEDIUM_URL: "http://127.0.0.1:8788",
+        PLANGOLIN_EVAL_REPEATS: "2",
+      },
+      cases,
+      stdout: { write(chunk) { lines.push(String(chunk)); } },
+      fetchImpl: async (_url, options) => {
+        fetches++;
+        const prompt = JSON.parse(options.body).prompt;
+        const parsed = breakCase && prompt.includes("Increase the token clock-skew") &&
+            prompt.includes("group:authentication")
+          ? { impacts: [impact({
+            level: "system",
+            targetId: "",
+            additions: [{
+              id: "unwanted-component", name: "Unwanted Component", kind: "",
+              intent: "Should not be structural.", dir: "", files: [],
+            }],
+          })] }
+          : responseByPrompt.get(prompt);
+        assert.ok(parsed, "only non-failure corpus cases reach the service");
+        return {
+          ok: true, status: 200,
+          async json() { return { parsed, provider: "live-provider", model: "live-model" }; },
+        };
+      },
+    });
+    return { output: JSON.parse(lines.join("")), fetches };
+  };
+
+  const correct = await run();
+  assert.equal(correct.output.decision, "pass");
+  assert.equal(correct.fetches, 19 * 4 * 2, "five declared failure cases stay local");
+
+  const incorrect = await run({ breakCase: true });
+  assert.equal(incorrect.output.decision, "fail");
 });
 
 test("fixed corpus covers every specified semantic and resilience scenario", async () => {

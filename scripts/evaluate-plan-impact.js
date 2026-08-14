@@ -15,6 +15,7 @@ const OPERATION_NAMES = [
 ];
 const CONTEXT_KINDS = ["named", "provisional"];
 const EFFORTS = ["high", "medium"];
+const LOCAL_FAILURE_SCENARIOS = new Set(["malformed", "timeout", "quota", "refusal", "network"]);
 
 const list = (value) => Array.isArray(value) ? value : [];
 const ratio = (correct, total) => total ? correct / total : 1;
@@ -261,6 +262,14 @@ export async function runLiveEvaluation({ cases, call, repeats = 2 }) {
       for (const testCase of cases) {
         const repeatedScores = [];
         for (let run = 0; run < repeats; run++) {
+          if (testCase.expected?.failureClass) {
+            const declared = testCase.execution?.scenario;
+            repeatedScores.push(failureScore(
+              testCase,
+              LOCAL_FAILURE_SCENARIOS.has(declared) ? declared : "service",
+            ));
+            continue;
+          }
           const requiresLiveEvidence = !testCase.expected?.failureClass &&
             testCase.expected?.fixtureOnly !== true;
           if (requiresLiveEvidence) liveEvidenceChecks++;
@@ -337,20 +346,23 @@ async function loadCases() {
   return parsed;
 }
 
-function normalizedServiceUrl(value, name) {
+function impactEndpoint(value, name) {
   let url;
   try { url = new URL(value); }
   catch { throw new Error(`${name} must be a valid HTTP(S) URL`); }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`${name} must be a valid HTTP(S) URL`);
   }
-  return url.href.replace(/\/$/, "");
+  if (url.username || url.password) throw new Error(`${name} must not contain credentials`);
+  if (url.search) throw new Error(`${name} must not contain a query`);
+  if (url.hash) throw new Error(`${name} must not contain a fragment`);
+  return new URL("/v1/impact", url).href;
 }
 
-async function requestImpact({ serviceUrl, body, fetchImpl }) {
+async function requestImpact({ endpoint, body, fetchImpl }) {
   let response;
   try {
-    response = await fetchImpl(`${serviceUrl.replace(/\/$/, "")}/v1/impact`, {
+    response = await fetchImpl(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -385,15 +397,15 @@ function createLiveCall({ env, fetchImpl }) {
     if (!configuredHigh || !configuredMedium) {
       throw new Error("PLANGOLIN_EVAL_HIGH_URL and PLANGOLIN_EVAL_MEDIUM_URL are both required");
     }
-    const highUrl = normalizedServiceUrl(configuredHigh, "PLANGOLIN_EVAL_HIGH_URL");
-    const mediumUrl = normalizedServiceUrl(configuredMedium, "PLANGOLIN_EVAL_MEDIUM_URL");
-    if (highUrl === mediumUrl) {
+    const highEndpoint = impactEndpoint(configuredHigh, "PLANGOLIN_EVAL_HIGH_URL");
+    const mediumEndpoint = impactEndpoint(configuredMedium, "PLANGOLIN_EVAL_MEDIUM_URL");
+    if (highEndpoint === mediumEndpoint) {
       throw new Error("high- and medium-effort evaluation URLs must be distinct instances");
     }
-    const byEffort = { high: highUrl, medium: mediumUrl };
+    const byEffort = { high: highEndpoint, medium: mediumEndpoint };
     return async ({ effort, prompt }) => {
       const data = await requestImpact({
-        serviceUrl: byEffort[effort],
+        endpoint: byEffort[effort],
         body: { installId: "plan-impact-evaluation", prompt },
         fetchImpl,
       });
@@ -414,10 +426,10 @@ function createLiveCall({ env, fetchImpl }) {
       "PLANGOLIN_EVAL_MEDIUM_URL instances",
     );
   }
-  const normalizedUrl = normalizedServiceUrl(serviceUrl, "PLANGOLIN_EVAL_SERVICE_URL");
+  const endpoint = impactEndpoint(serviceUrl, "PLANGOLIN_EVAL_SERVICE_URL");
   return async ({ caseId, contextKind, effort, scenario, prompt }) => {
     const data = await requestImpact({
-      serviceUrl: normalizedUrl,
+      endpoint,
       body: {
         installId: "plan-impact-evaluation",
         prompt,
