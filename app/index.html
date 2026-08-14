@@ -86,8 +86,11 @@
     <aside class="planpanel" id="planpanel" aria-hidden="true">
       <header class="plan-grip" id="plan-grip">
         <span class="plan-ttl">Claude's plan</span>
-        <span class="plan-dots" id="plan-dots"></span>
-        <span class="plan-of" id="plan-of"></span>
+        <span class="plan-nav">
+          <button id="plan-prev" type="button" aria-label="Previous">◀</button>
+          <button id="plan-next" type="button" aria-label="Next">▶</button>
+        </span>
+        <span class="plan-of" id="plan-of" role="status" aria-live="polite" aria-atomic="true"></span>
         <button class="plan-x" id="plan-close" aria-label="Close">×</button>
       </header>
       <div class="plan-note" id="plan-note"></div>
@@ -111,11 +114,10 @@
         <button class="ghost-btn" id="plan-cut" type="button">Cut</button>
         <button class="ghost-btn" id="plan-keep" type="button">Keep</button>
         <button class="ghost-btn primary" id="plan-approve" type="button">Approve</button>
-        <span class="plan-nav">
-          <button id="plan-prev" type="button" aria-label="Previous">◀</button>
-          <button id="plan-next" type="button" aria-label="Next">▶</button>
-        </span>
       </footer>
+      <div class="plan-progress" id="plan-progress" aria-hidden="true">
+        <span class="plan-dots" id="plan-dots"></span>
+      </div>
     </aside>
 
     <!-- The way in to the plan check. Drawn rather than iconographic: same drift

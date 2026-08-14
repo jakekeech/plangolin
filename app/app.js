@@ -2458,6 +2458,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     const loading = document.getElementById("plan-loading");
     const loadingBall = document.getElementById("plan-loading-ball");
     const foot = document.getElementById("plan-foot") || document.querySelector(".plan-foot");
+    const progress = document.getElementById("plan-progress");
     /* The stepper's keys travel with the panel, and nothing else renders
        them — so a review that ends without passing through here left K and C
        floating over the sheet, offering shortcuts for a decision already
@@ -2482,6 +2483,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       planLoader.start(loadingBall, 58);
       document.getElementById("plan-dots").innerHTML = "";
       document.getElementById("plan-of").textContent = "";
+      progress.hidden = true;
       foot.dataset.stage = "thinking";
       return;
     }
@@ -2489,6 +2491,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     loading.hidden = true;
     note.textContent = plan.note || "";
     body.hidden = false;
+    progress.hidden = false;
 
     const list = planStepList();
     if (planAt >= list.length) planAt = list.length - 1;
