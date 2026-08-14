@@ -211,10 +211,11 @@ function validateCandidates(rawImpacts, context) {
   return rawImpacts.map((rawValue, sourceIndex) => {
     const raw = isObject(rawValue) ? rawValue : {};
     const steps = validateSteps(raw.steps, validSteps, diagnostics, sourceIndex);
+    const evidence = validateEvidence(raw, steps, stepText, diagnostics);
     const originalLevel = raw.level;
     const targetIsString = typeof raw.targetId === "string";
     const rawTargetId = targetIsString ? raw.targetId : "";
-    const ownerId = targetIsString ? deepestSingleOwner(nodes, raw.files) : "";
+    const ownerId = targetIsString ? deepestSingleOwner(nodes, evidence.files) : "";
     let level = originalLevel;
     let targetId = rawTargetId;
     let invalidImpact = false;
@@ -257,7 +258,6 @@ function validateCandidates(rawImpacts, context) {
     });
     if (title === "Needs review" && !(typeof raw.title === "string" && raw.title.trim())) invalidImpact = true;
     const why = cleanString(raw.why, MAX_WHY, diagnostics, "why");
-    const evidence = validateEvidence(raw, steps, stepText, diagnostics);
 
     if (OPERATION_NAMES.some((name) => !Array.isArray(raw[name]))) {
       diagnostics.invalidOperations++;

@@ -31,6 +31,7 @@ const STEPS = [
   { n: 3, text: "Document the rollout." },
   { n: 4, text: "Remove the old database link." },
 ];
+const API_FILE_STEP = { n: 2, text: "Update the request handler in src/api.js." };
 
 const EMPTY_OPERATIONS = {
   additions: [],
@@ -121,7 +122,7 @@ test("keeps component work on an existing component", () => {
 
 test("repairs a blank component target from one unambiguous file owner", () => {
   const result = validate([impact({ targetId: "", files: ["src/api.js"], steps: [2] })], {
-    steps: [STEPS[1]],
+    steps: [API_FILE_STEP],
   });
   assert.equal(result.coverage.complete, true);
   assert.deepEqual(result.impacts.map(({ level, targetId }) => ({ level, targetId })), [
@@ -129,9 +130,20 @@ test("repairs a blank component target from one unambiguous file owner", () => {
   ]);
 });
 
+test("does not repair a blank target from an unsupported owned file", () => {
+  const result = validate([impact({ targetId: "", files: ["src/api.js"], steps: [2] })], {
+    steps: [STEPS[1]],
+  });
+
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 1, complete: false });
+  assert.ok(result.diagnostics.issues.some((issue) => issue.code === "unsupported_evidence"));
+});
+
 test("does not invent placement when evidence has multiple or no owners", () => {
   const withoutOwner = validate([impact({ targetId: "", files: [], steps: [2] })], {
-    steps: [STEPS[1]],
+    steps: [API_FILE_STEP],
   });
   assert.deepEqual(withoutOwner.impacts, []);
   assert.deepEqual(withoutOwner.coverage, { claimed: 0, total: 1, complete: false });
@@ -142,7 +154,7 @@ test("does not invent placement when evidence has multiple or no owners", () => 
       NODES[0],
       { ...NODES[0], id: "api-shadow" },
     ],
-    steps: [STEPS[1]],
+    steps: [API_FILE_STEP],
   });
   assert.deepEqual(ambiguous.impacts, []);
   assert.deepEqual(ambiguous.rejectedSteps, [2]);
@@ -166,7 +178,7 @@ test("repairs legacy unplaced work to the deepest literal file owner", () => {
   ];
   const result = validate([
     impact({ level: "unresolved", targetId: "", files: ["src/api.js"], steps: [2], size: "" }),
-  ], { nodes, steps: [STEPS[1]] });
+  ], { nodes, steps: [API_FILE_STEP] });
 
   assert.deepEqual(result.impacts.map(({ level, targetId }) => ({ level, targetId })), [
     { level: "component", targetId: "api" },
