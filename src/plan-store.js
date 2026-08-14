@@ -8,6 +8,7 @@ import { buildBrief } from "./plan-brief.js";
 import { planReach } from "./plan-reach.js";
 import { load, saveIfEmpty, docFromMoves } from "./schema.js";
 import { buildFileGraph, fingerprintGraph } from "./filegraph.js";
+import { completeMapEdges } from "./map-edges.js";
 import {
   discoverProject,
   nameProject,
@@ -54,9 +55,9 @@ const truncationNote = (review) => review.truncated
 const browserState = (review) => {
   if (!review) return null;
   const {
-    id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, note,
+    id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, note, edges,
   } = review;
-  return { id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, note };
+  return { id, status, phase, revision, elapsedMs, counts, steps, impacts, reach, mapEdges: edges, note };
 };
 
 async function keepScan(ws, moves) {
@@ -99,6 +100,7 @@ export function createPlanStore(dependencies = {}) {
     clearTimeout,
     onPublish: null,
     buildGraph: buildFileGraph,
+    completeMapEdges,
     fingerprintGraph,
     readPreparation,
     preparationStartup,
@@ -340,6 +342,12 @@ export function createPlanStore(dependencies = {}) {
       nodes = mapped.nodes;
       edges = mapped.edges;
       preparedImpact = mapped.impactResult || null;
+    } else if (!edges.length && nodes.length > 1) {
+      // A saved map can predate a relationship reader (notably runtime-base
+      // HTTP URLs). Repair only the missing review context from current code;
+      // the persisted map remains untouched.
+      const graph = await (options.buildGraph || deps.buildGraph)(ws);
+      edges = (options.completeMapEdges || deps.completeMapEdges)(nodes, edges, graph);
     }
 
     if (!isCurrentAttempt(token) || review.status !== "working") return;

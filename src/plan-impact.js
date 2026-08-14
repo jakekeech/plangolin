@@ -369,6 +369,34 @@ function addMissingAsUnresolved(owned, steps, diagnostics) {
   return repaired;
 }
 
+function groupComponentImpacts(impacts) {
+  const grouped = new Map();
+  const out = [];
+  for (const impact of impacts) {
+    if (impact.level !== "component" || !impact.targetId) {
+      out.push(impact);
+      continue;
+    }
+    const existing = grouped.get(impact.targetId);
+    if (!existing) {
+      const copy = {
+        ...impact,
+        steps: [...impact.steps],
+        files: [...impact.files],
+        symbols: [...impact.symbols],
+      };
+      grouped.set(impact.targetId, copy);
+      out.push(copy);
+      continue;
+    }
+    existing.steps = [...new Set([...existing.steps, ...impact.steps])].sort((a, b) => a - b);
+    existing.files = [...new Set([...existing.files, ...impact.files])].slice(0, MAX_EVIDENCE);
+    existing.symbols = [...new Set([...existing.symbols, ...impact.symbols])].slice(0, MAX_EVIDENCE);
+    if (impact.size === "substantial") existing.size = "substantial";
+  }
+  return out;
+}
+
 function assignTrustedKeys(repaired, diagnostics, steps) {
   const impacts = repaired.map(({ sourceIndex: _sourceIndex, ...impact }, index) => ({
     key: `impact:${index + 1}`,
@@ -443,7 +471,7 @@ export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
   const owned = revalidateCandidateReferences(
     resolveStepConflicts(candidates, diagnostics), existingIds, diagnostics,
   );
-  const repaired = addMissingAsUnresolved(owned, steps, diagnostics);
+  const repaired = addMissingAsUnresolved(groupComponentImpacts(owned), steps, diagnostics);
   return assignTrustedKeys(repaired, diagnostics, steps);
 }
 

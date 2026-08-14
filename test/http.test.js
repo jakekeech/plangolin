@@ -25,6 +25,12 @@ test("reads a browser calling out", () => {
   assert.deepEqual(r.serves, []);
 });
 
+test("reads a route appended to a runtime API base URL", () => {
+  const r = httpRoutes("fetch(`${API_BASE_URL}/jobs/${jobId}`)");
+  assert.deepEqual(r.calls, ["/jobs/*"]);
+  assert.deepEqual(r.serves, []);
+});
+
 test("reads a FastAPI route", () => {
   const r = httpRoutes(`@app.post("/api/hunt")\nasync def start_hunt():\n    pass`);
   assert.deepEqual(r.serves, ["/api/hunt"]);

@@ -27,6 +27,11 @@ const VARIABLE = /\$\{[^}]*\}|\{[^}]*\}|:[A-Za-z_]\w*/g;
     Returns "" for anything that is not a usable absolute path. */
 export function normalise(raw) {
   let p = String(raw || "").trim();
+  // A client commonly keeps its host in a runtime variable and appends a
+  // literal route: `${API_BASE_URL}/jobs/${id}`. The host is unknowable here,
+  // but the path is still a checkable literal and can be matched to a server
+  // route without guessing either endpoint.
+  p = p.replace(/^\$\{[^}]+\}(?=\/)/, "");
   if (!p.startsWith("/")) return "";              // relative or computed — skip
   p = p.split("?")[0].split("#")[0];
   p = p.replace(VARIABLE, "*");

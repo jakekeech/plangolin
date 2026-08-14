@@ -41,11 +41,25 @@ node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" prepare
 If preparation is unavailable or fails, continue with a cold review as the
 product supports.
 
-**2. Plan it the way you normally would.**
+**2. Draft the changes the diagram needs.**
 
-Read the code first if there is any. Write the plan you would have written
-anyway — same depth, same judgement. Do not write a thinner plan because
-plangolin is involved.
+Read the code first if there is any. Write a compact decision plan with one
+item per meaningful system or component change. A typical plan has 3–8 items.
+Each item says what changes, where it belongs, and which existing or proposed
+part it connects to. Group its file, function, test, and sequencing details
+inside that item instead of turning them into separate plan steps.
+Use names from the current system map as containers; name a lower-level part
+only when the plan actually adds or changes that part inside the container.
+
+The saved plan has this shape:
+
+1. Proposed nodes and connections.
+2. Changes inside existing components, named at the deepest justified level.
+3. Supporting work folded into the change it supports.
+
+Current-state background, decision tables, alternative essays, and a second
+copy of the implementation sequence do not belong in the saved plan. Keep the
+judgement; remove the repetition. The diagram is the overview.
 
 **Write no code and change no files yet.** The whole point is that the user
 sees the shape before anything is built.
@@ -131,8 +145,8 @@ plan as written. That is a real answer, not a failure.
 
 **6. Revise and present.**
 
-Rewrite the plan so it matches what was agreed, then present it for approval
-the way you normally would.
+Update the same compact plan so it matches what was agreed, then present the
+approved change items without expanding them back into a long design essay.
 
 ## When the system map is empty
 

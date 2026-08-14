@@ -62,20 +62,25 @@ test("the browser consumes the impact projection instead of legacy deltas", () =
     /projectionForReview\(plan, S\.nodes, S\.edges, previousProjection\)/);
 });
 
+test("the canvas count includes transient code-backed review edges", () => {
+  assert.match(functionSource(APP, "render"), /const mapEdges = displayedMapEdges\(\)/);
+  assert.match(functionSource(APP, "render"), /mapEdges\.length/);
+});
+
 test("temporary hierarchy reuses viewRoot navigation without resetting decisions", () => {
   assert.match(functionSource(APP, "enterNode"), /hasViewChildren\(id\)/);
   assert.match(functionSource(APP, "goToView"), /navigatePlanState/);
   assert.match(APP, /handleTemporaryActivation/);
 });
 
-test("temporary cards are focusable plan controls with no ports", () => {
+test("temporary cards are focusable graph items with decisions kept in the panel", () => {
   const renderer = functionSource(APP, "renderTemporaryNode");
   assert.match(renderer, /plan-card/);
   assert.match(renderer, /plan-node-action/);
   assert.match(renderer, /applyTemporaryNodeAccessibility/);
-  assert.match(renderer, /data-plan-toggle/);
-  assert.match(renderer, /data-impact-key/);
-  assert.match(renderer, /planControlState\(plan\)\.keep/);
+  assert.match(renderer, /dataset\.impactKey/);
+  assert.doesNotMatch(renderer, /data-plan-toggle/);
+  assert.doesNotMatch(renderer, /planControlState\(plan\)/);
   assert.doesNotMatch(renderer, /class="port"/);
   assert.match(CSS, /\.node\.plan-card/);
   assert.match(CSS, /\.node\.plan-group/);
@@ -84,14 +89,20 @@ test("temporary cards are focusable plan controls with no ports", () => {
   assert.match(CSS, /\.wire\.plan-disconnection/);
 });
 
-test("failed reviews render Needs Review without exposing keep or cut decisions", () => {
+test("failed reviews keep the codebase visible and offer retry or skip in the panel", () => {
   assert.match(functionSource(APP, "renderNodes"), /planProjectionVisible\(plan\)/);
-  assert.match(functionSource(APP, "renderTemporaryNode"), /planControlState\(plan\)\.keep/);
+  const panel = functionSource(APP, "renderPlan");
+  assert.match(panel, /if \(plan\.status === "error"\)/);
+  assert.match(panel, /renderPlanControls\("error", renderState\.controls\)/);
+  assert.doesNotMatch(functionSource(APP, "renderTemporaryNode"), /planControlState\(plan\)/);
 });
 
-test("the plan panel renders literal cited steps, files, and symbols", () => {
+test("the plan panel folds cited steps, files, and symbols into Details", () => {
   assert.match(HTML, /id="plan-evidence"/);
-  assert.match(APP, /evidence\.innerHTML = planEvidenceHtml\(s\)/);
+  const panel = functionSource(APP, "renderPlan");
+  assert.match(panel, /evidence\.innerHTML = ""/);
+  assert.match(panel, /planEvidenceHtml\(s\)/);
+  assert.match(panel, /<details><summary>Details<\/summary>/);
 });
 
 test("stepper, cards, annotations, and edges decide by the same impact key", () => {

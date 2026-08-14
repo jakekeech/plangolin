@@ -118,6 +118,26 @@ test("keeps component work on an existing component", () => {
   ]);
 });
 
+test("groups internal work into one nested change per component", () => {
+  const steps = [
+    { n: 1, text: "Update handleRequest in src/api.js." },
+    { n: 2, text: "Add validateToken in src/routes.js." },
+  ];
+  const result = validate([
+    impact({
+      title: "Update request handling", steps: [1], files: ["src/api.js"], symbols: ["handleRequest"],
+    }),
+    impact({
+      title: "Validate credentials", steps: [2], files: ["src/routes.js"], symbols: ["validateToken"],
+    }),
+  ], { steps });
+
+  assert.equal(result.impacts.length, 1);
+  assert.deepEqual(result.impacts[0].steps, [1, 2]);
+  assert.deepEqual(result.impacts[0].files, ["src/api.js", "src/routes.js"]);
+  assert.deepEqual(result.impacts[0].symbols, ["handleRequest", "validateToken"]);
+});
+
 test("accepts a component target declared by a later addition", () => {
   const result = validate([
     impact({ targetId: "limiter", title: "Tune the limiter", steps: [2] }),

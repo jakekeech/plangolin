@@ -115,7 +115,7 @@ test("warm review publishes the browser contract and legal phases", async () => 
   await store.fill(memWs(SYSTEM));
 
   assert.deepEqual(Object.keys(store.forBrowser()).sort(), [
-    "counts", "elapsedMs", "id", "impacts", "note", "phase", "reach",
+    "counts", "elapsedMs", "id", "impacts", "mapEdges", "note", "phase", "reach",
     "revision", "status", "steps",
   ]);
   assert.deepEqual(store.forBrowser(), {
@@ -128,6 +128,7 @@ test("warm review publishes the browser contract and legal phases", async () => 
     steps: STEPS,
     impacts: [impact()],
     reach: [],
+    mapEdges: [{ ...EDGES[0], origin: "user", operations: [] }],
     note: "",
   });
   assert.deepEqual(phases(states), ["loading_system_map", "matching_plan", "arranging_review"]);
@@ -424,6 +425,35 @@ test("warm map performs one impact call and no project-map work", async () => {
     impacts: 1, graphs: 0, discoveries: 0, adoptions: 0,
   });
   assert.equal(store.takeScan(), null);
+});
+
+test("warm review restores and publishes missing code-backed map edges", async () => {
+  const nodes = [
+    { id: "app", name: "App", intent: "Uploads videos.", anchor: { paths: ["app/index.tsx"] } },
+    { id: "api", name: "API", intent: "Analyses videos.", anchor: { paths: ["server/api.py"] } },
+  ];
+  const graph = {
+    files: ["app/index.tsx", "server/api.py"],
+    links: [{ from: "app/index.tsx", to: "server/api.py", kind: "http", names: ["/analyze/video"] }],
+    capped: false,
+  };
+  let seen;
+  const store = createPlanStore({
+    buildGraph: async () => graph,
+    impact: async (context) => {
+      seen = context;
+      return readyResult({ impacts: [impact({ targetId: "api" })] });
+    },
+  });
+  store.open({ plan: PLAN });
+  await store.fill(memWs({ version: 1, nodes, edges: [], notes: [], types: {}, dismissed: [] }));
+
+  assert.equal(seen.edges.length, 1);
+  assert.deepEqual(seen.edges[0], {
+    id: "scan:app>api", from: "app", to: "api", label: "calls API", origin: "scan",
+    operations: [{ name: "/analyze/video", sends: "", returns: "" }],
+  });
+  assert.deepEqual(store.forBrowser().mapEdges, seen.edges);
 });
 
 test("exact cached preparation is the one identity source for review, adoption, and brief", async () => {

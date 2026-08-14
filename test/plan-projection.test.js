@@ -5,6 +5,8 @@ import {
   buildPlanProjection,
   planViewNodes,
   recursiveImpactCounts,
+  reviewDecisionImpacts,
+  reviewMapEdges,
   setImpactDecision,
   temporaryChildren,
 } from "../app/plan-projection.js";
@@ -152,7 +154,7 @@ test("removal, responsibility, and disconnection operations annotate persisted i
   );
 });
 
-test("component and scoped support cards appear only inside their deepest targets", () => {
+test("only internal changes appear inside their deepest targets", () => {
   const impacts = [
     impact(),
     impact({
@@ -165,9 +167,7 @@ test("component and scoped support cards appear only inside their deepest target
   assert.deepEqual(temporaryChildren(projection, "worker").map((node) => [node.cardKind, node.impactKey]), [
     ["internal change", "impact:1"],
   ]);
-  assert.deepEqual(temporaryChildren(projection, "api").map((node) => [node.cardKind, node.impactKey]), [
-    ["supporting change", "impact:tests"],
-  ]);
+  assert.deepEqual(temporaryChildren(projection, "api"), []);
   assert.equal(temporaryChildren(projection, "backend").length, 0);
   assert.equal(temporaryChildren(projection, null).length, 0);
 });
@@ -194,13 +194,13 @@ test("recursive impact badges propagate through persisted and proposed ancestors
   const counts = recursiveImpactCounts(projection, NODES);
   const limiter = projection.nodes.find((node) => node.sourceId === "limiter");
 
-  assert.equal(counts.get("worker"), 2);
-  assert.equal(counts.get("api"), 2);
-  assert.equal(counts.get("backend"), 2);
+  assert.equal(counts.get("worker"), 1);
+  assert.equal(counts.get("api"), 1);
+  assert.equal(counts.get("backend"), 1);
   assert.equal(counts.get(limiter.id), 2);
 });
 
-test("Project Support and Needs Review groups exist only when populated", () => {
+test("support and unresolved impacts never create top-level groups", () => {
   const none = buildPlanProjection(review("review-a", [impact()]), NODES, EDGES);
   assert.equal(none.nodes.some((node) => node.planType === "group"), false);
 
@@ -216,13 +216,28 @@ test("Project Support and Needs Review groups exist only when populated", () => 
   ]), NODES, EDGES);
   const groups = populated.nodes.filter((node) => node.planType === "group");
 
-  assert.deepEqual(groups.map((node) => node.name), ["Project Support", "Needs Review"]);
-  assert.deepEqual(groups.map((group) => temporaryChildren(populated, group.id).map((card) => card.impactKey)), [
-    ["impact:docs"], ["impact:unknown"],
+  assert.deepEqual(groups, []);
+});
+
+test("support and unresolved bookkeeping never become graph nodes", () => {
+  const projection = buildPlanProjection(review("review-a", [
+    impact({ key: "impact:internal" }),
+    impact({
+      key: "impact:docs", level: "support", targetId: "worker", title: "Document rollout",
+      steps: [3], files: [], symbols: [],
+    }),
+    impact({
+      key: "impact:unknown", level: "unresolved", targetId: "", title: "Place audit work",
+      steps: [4], files: [], symbols: [],
+    }),
+  ]), NODES, EDGES);
+
+  assert.deepEqual(projection.nodes.map((node) => [node.planType, node.impactKey]), [
+    ["card", "impact:internal"],
   ]);
 });
 
-test("a failed analysis projects every unresolved step under Needs Review", () => {
+test("a failed analysis keeps unresolved bookkeeping out of the graph", () => {
   assert.equal(typeof planProjectionModule.projectionForReview, "function",
     "the browser projection policy is behavior shared with tests");
   const failed = {
@@ -243,20 +258,7 @@ test("a failed analysis projects every unresolved step under Needs Review", () =
     reviewId: "review-error", nodes: [], edges: [],
     annotations: { removals: [], responsibilities: [], disconnections: [] },
   });
-  const group = projected.nodes.find((node) => node.groupKind === "needs-review");
-
-  assert.equal(group.name, "Needs Review");
-  assert.deepEqual(
-    temporaryChildren(projected, group.id).map((card) => card.steps),
-    [[1], [2]],
-  );
-  assert.deepEqual(
-    temporaryChildren(projected, group.id).map(({ name, intent }) => ({ name, intent })),
-    [
-      { name: "Plan step 1", intent: "Change runJob in src/worker.js." },
-      { name: "Plan step 2", intent: "Add limiter and connect API to it." },
-    ],
-  );
+  assert.deepEqual(projected.nodes, []);
 });
 
 test("failed, partial, and ready reviews expose their temporary projection", () => {
@@ -399,4 +401,40 @@ test("one impact key keeps or cuts every structural representation atomically", 
   const kept = setImpactDecision(cut, "impact:structural", false);
   assert.deepEqual(acceptedImpactKeys(sourceReview, kept), ["impact:structural", "impact:internal"]);
   assert.equal(cut.has("impact:structural"), true, "the prior decision set remains immutable");
+});
+
+test("reviewMapEdges adds transient repaired edges without duplicating saved ones", () => {
+  const saved = [{ id: "a__b", from: "a", to: "b", label: "saved" }];
+  const sourceReview = { mapEdges: [
+    { id: "scan:a>b", from: "a", to: "b", label: "duplicate" },
+    {
+      id: "scan:b>c", from: "b", to: "c", label: "calls API",
+      operations: [{ name: "/jobs/*", sends: "", returns: "" }],
+    },
+  ] };
+
+  assert.deepEqual(reviewMapEdges(saved, sourceReview), [
+    saved[0],
+    {
+      id: "scan:b>c", from: "b", to: "c", label: "calls API",
+      operations: [{ name: "/jobs/*", sends: "", returns: "" }],
+      reviewContext: true,
+    },
+  ]);
+});
+
+test("review decisions contain only graphical and nested component changes", () => {
+  const sourceReview = review("review-a", [
+    impact({ key: "impact:component" }),
+    impact({ key: "impact:support", level: "support", targetId: "worker" }),
+    impact({ key: "impact:unresolved", level: "unresolved", targetId: "" }),
+    impact({
+      key: "impact:system", level: "system", targetId: "", steps: [2],
+      additions: [{ id: "limiter", name: "Limiter", kind: "Module", intent: "Limits.", dir: "", files: [] }],
+    }),
+  ]);
+
+  assert.deepEqual(reviewDecisionImpacts(sourceReview).map((entry) => entry.key), [
+    "impact:component", "impact:system",
+  ]);
 });

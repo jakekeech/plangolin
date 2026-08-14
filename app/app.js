@@ -2,9 +2,11 @@ import { generatedPositions, layeredPositions, proposalPositions } from "./graph
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import {
   planProjectionVisible,
+  reviewDecisionImpacts,
   planViewNodes,
   projectionForReview,
   recursiveImpactCounts,
+  reviewMapEdges,
   setImpactDecision,
   temporaryChildren,
 } from "./plan-projection.js";
@@ -698,6 +700,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   const childrenOf = (id) => S.nodes.filter((n) => n.parent === id);
   const isContainer = (id) => childrenOf(id).length > 0;
   const hasViewChildren = (id) => isContainer(id) || temporaryChildren(planProjection, id).length > 0;
+  const displayedMapEdges = () => reviewMapEdges(S.edges, plan);
 
   function syncPlanProjection() {
     const previousProjection = planProjection;
@@ -1795,9 +1798,10 @@ import { createRolledLoader } from "./rolled-loader.js";
     // meant a new user's sheet had no way in until something happened to
     // trigger a sync.
     renderChangeBar();
+    const mapEdges = displayedMapEdges();
     document.getElementById("stat").textContent =
       S.nodes.length + (S.nodes.length === 1 ? " block" : " blocks") + " · " +
-      S.edges.length + (S.edges.length === 1 ? " line" : " lines");
+      mapEdges.length + (mapEdges.length === 1 ? " line" : " lines");
   }
 
   function renderNodes() {
@@ -1902,17 +1906,6 @@ import { createRolledLoader } from "./rolled-loader.js";
     el.style.top = position.y + "px";
     const k = iconFor(n.kind || "");
     const count = planImpactCounts.get(n.id) || 0;
-    const controls = n.impactKey && planControlState(plan).keep
-      ? '<span class="plan-card-controls" data-impact-key="' + esc(n.impactKey) + '">' +
-          '<button type="button" data-plan-toggle="keep" data-impact-key="' + esc(n.impactKey) +
-            '" data-plan-owner-id="' + esc(n.id) +
-            '" data-plan-representation-id="' + esc(n.id) +
-            '" aria-pressed="' + String(!cut) + '">Keep</button>' +
-          '<button type="button" data-plan-toggle="cut" data-impact-key="' + esc(n.impactKey) +
-            '" data-plan-owner-id="' + esc(n.id) +
-            '" data-plan-representation-id="' + esc(n.id) +
-            '" aria-pressed="' + String(cut) + '">Cut</button></span>'
-      : "";
     el.innerHTML = count
       ? '<span class="plan-count">' + count + ' planned change' + (count === 1 ? "" : "s") + "</span>"
       : "";
@@ -1924,9 +1917,10 @@ import { createRolledLoader } from "./rolled-loader.js";
       '<span class="node-top">' + (n.planType === "card" ? "" : k.icon) +
         '<span class="node-kind">' + esc(n.cardKind || (n.kind || "").trim() || k.label) + "</span></span>" +
       '<span class="node-name">' + esc(n.name) + "</span>" +
-      '<span class="node-intent">' + esc(n.intent || "") + "</span>";
+      (n.planType === "addition" && n.intent
+        ? '<span class="node-intent">' + esc(n.intent) + "</span>"
+        : "");
     el.appendChild(action);
-    if (controls) el.insertAdjacentHTML("beforeend", controls);
     world.appendChild(el);
   }
 
@@ -1949,7 +1943,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     const proposed = new Set(additions.map((addition) => addition.id));
     const visible = (id) => proposed.has(id) ? id : levelAncestor(id);
     const pairs = new Set();
-    const edges = [...S.edges, ...planProjection.edges].flatMap((edge) => {
+    const edges = [...displayedMapEdges(), ...planProjection.edges].flatMap((edge) => {
       const from = visible(edge.from), to = visible(edge.to);
       const key = from + ">" + to;
       if (!from || !to || from === to || pairs.has(key)) return [];
@@ -2465,7 +2459,7 @@ import { createRolledLoader } from "./rolled-loader.js";
       .filter((r) => ids.includes(r.via))
       .map((r) => ({ ...r, name: nameOf(r.id) }));
     const byStep = new Map((plan.steps || []).map((step) => [step.n, step.text]));
-    const out = (plan.impacts || []).map((impact) => {
+    const out = reviewDecisionImpacts(plan).map((impact) => {
       const card = planProjection.nodes.find((candidate) =>
         candidate.planType === "card" && candidate.impactKey === impact.key);
       const additions = impact.additions || [];
@@ -2510,6 +2504,9 @@ import { createRolledLoader } from "./rolled-loader.js";
         detail: operations.join(" · ") ||
           (impact.level === "support" ? "Supporting work" :
             impact.level === "unresolved" ? "Placement needs review" : "Internal work"),
+        where: impact.level === "component" && impact.targetId
+          ? "Inside " + nameOf(impact.targetId)
+          : "System level",
         reach: reachFor(rawIds),
       };
     });
@@ -2688,19 +2685,25 @@ import { createRolledLoader } from "./rolled-loader.js";
       document.getElementById("plan-mark").textContent = planCut.has(s.key) ? "✗" : s.mark;
       document.getElementById("plan-nm").textContent = s.name;
       document.getElementById("plan-size").textContent = s.size || "";
-      document.getElementById("plan-from").textContent =
-        "from step" + (s.steps.length > 1 ? "s " : " ") + s.steps.join(", ");
-      document.getElementById("plan-why").textContent = planSaysWhat(s);
-      document.getElementById("plan-detail").textContent = s.detail || "";
-      evidence.innerHTML = planEvidenceHtml(s);
+      document.getElementById("plan-from").textContent = s.where;
+      document.getElementById("plan-why").textContent = "";
+      document.getElementById("plan-detail").textContent = "";
+      evidence.innerHTML = "";
       const reach = s.reach || [];
-      document.getElementById("plan-reach").innerHTML = reach.length
-        ? '<span class="plan-files-label">Already used by</span>' +
-          reach.map((r) => esc(r.name) + ' <i>(' + esc(r.label) + ")</i>").join(", ")
-        : "";
+      document.getElementById("plan-reach").textContent = "";
       const said = saidFor(s.steps);
-      document.getElementById("plan-quote").innerHTML = said
-        ? "<details><summary>what the plan said</summary><span>" + esc(said) + "</span></details>"
+      const detailParts = [
+        s.why ? "<p>" + esc(planSaysWhat(s)) + "</p>" : "",
+        s.detail ? '<p class="plan-detail">' + esc(s.detail) + "</p>" : "",
+        planEvidenceHtml(s),
+        reach.length
+          ? '<p><span class="plan-files-label">Already used by</span>' +
+            reach.map((r) => esc(r.name) + ' <i>(' + esc(r.label) + ")</i>").join(", ") + "</p>"
+          : "",
+        said ? '<p><span class="plan-files-label">From the plan</span>' + esc(said) + "</p>" : "",
+      ].filter(Boolean).join("");
+      document.getElementById("plan-quote").innerHTML = detailParts
+        ? "<details><summary>Details</summary>" + detailParts + "</details>"
         : "";
       renderPlanControls("step", renderState.controls);
       keep.classList.toggle("on", !planCut.has(s.key));
@@ -3213,7 +3216,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     const SPREAD = 26;
 
     const bundles = new Map();
-    S.edges.forEach((e) => {
+    displayedMapEdges().forEach((e) => {
       const a = levelAncestor(e.from), b = levelAncestor(e.to);
       if (!a || !b || a === b) return;              // not part of this level, or wholly inside one block here
       const key = a + ">" + b;
@@ -3246,8 +3249,10 @@ import { createRolledLoader } from "./rolled-loader.js";
         const gone = wiresGone.has(e.id);
         add("path", { d: d, class: "wire" + (sel ? " sel" : "") +
           (e.operations.length === 0 ? " loose" : "") + (gone ? " gone" : "") });
-        const hit = add("path", { d: d, class: "wire-hit" });
-        hit.addEventListener("mousedown", (ev) => { ev.stopPropagation(); select("edge", e.id); });
+        if (!e.reviewContext) {
+          const hit = add("path", { d: d, class: "wire-hit" });
+          hit.addEventListener("mousedown", (ev) => { ev.stopPropagation(); select("edge", e.id); });
+        }
         if (e.label) {
           add("text", { x: (p.x1 + p.x2) / 2, y: (p.y1 + p.y2) / 2 - 7 + spread * 0.75, class: "wire-label" },
             e.label, labelLayer);
@@ -3270,7 +3275,7 @@ import { createRolledLoader } from "./rolled-loader.js";
      */
     const STUB_LEN = 54;
     const stubs = new Map();
-    S.edges.forEach((e) => {
+    displayedMapEdges().forEach((e) => {
       const a = levelAncestor(e.from), b = levelAncestor(e.to);
       if (a && b) return;                       // both ends here, already drawn
       if (!a && !b) return;                     // neither end here; not ours to say
@@ -3316,7 +3321,7 @@ import { createRolledLoader } from "./rolled-loader.js";
        to their drawn ancestors so a new line into a collapsed block lands on
        the block rather than vanishing with its child. */
     const drawn = new Set();
-    S.edges.forEach((e) => {
+    displayedMapEdges().forEach((e) => {
       const a = levelAncestor(e.from), b = levelAncestor(e.to);
       if (a && b && a !== b) drawn.add(a + ">" + b);
     });

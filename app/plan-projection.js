@@ -42,14 +42,33 @@ const emptyProjection = () => ({
   annotations: { removals: [], responsibilities: [], disconnections: [] },
 });
 
+export function reviewMapEdges(edges, review) {
+  const saved = list(edges);
+  const present = new Set(saved.map((edge) => edge.from + "\0" + edge.to));
+  const repaired = list(review && review.mapEdges)
+    .filter((edge) => edge && !present.has(edge.from + "\0" + edge.to))
+    .map((edge) => ({
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      label: edge.label || "",
+      operations: list(edge.operations).map((operation) => ({ ...operation })),
+      reviewContext: true,
+    }));
+  return [...saved, ...repaired];
+}
+
+export function reviewDecisionImpacts(review) {
+  return list(review && review.impacts)
+    .filter((impact) => impact && (impact.level === "system" || impact.level === "component"));
+}
+
 export function planProjectionVisible(review) {
   return ["ready", "partial", "error"].includes(review && review.status || "");
 }
 
-/* A failed analysis still owns a complete, deterministic set of unresolved
-   impacts. Project those raw steps just like ready/partial impacts so the
-   browser can show Needs Review; only a working retry keeps the prior
-   projection in place to avoid flicker. */
+/* A failed analysis keeps the persisted map visible without inventing graph
+   nodes. A working retry keeps the previous projection to avoid flicker. */
 export function projectionForReview(review, nodes, edges, previousProjection) {
   const status = review && review.status || "";
   if (planProjectionVisible(review)) {
@@ -63,8 +82,6 @@ export function projectionForReview(review, nodes, edges, previousProjection) {
 export function buildPlanProjection(review, nodes, edges) {
   const reviewId = review && review.id ? review.id : "review";
   const impacts = list(review && review.impacts);
-  const stepText = new Map(list(review && review.steps)
-    .map((step) => [step && step.n, String(step && step.text || "")]));
   const persistedEdges = list(edges);
   const temporaryNodes = [];
   const temporaryEdges = [];
@@ -96,30 +113,6 @@ export function buildPlanProjection(review, nodes, edges) {
       temporaryNodes.push(temporary);
     });
   }
-
-  const projectSupport = impacts.some((impact) => impact.level === "support" && !impact.targetId);
-  const needsReview = impacts.some((impact) => impact.level === "unresolved");
-  const projectSupportId = "plan:" + namespacePart(reviewId) + ":group:project-support";
-  const needsReviewId = "plan:" + namespacePart(reviewId) + ":group:needs-review";
-
-  if (projectSupport) temporaryNodes.push({
-    id: projectSupportId,
-    planType: "group",
-    groupKind: "project-support",
-    parent: null,
-    name: "Project Support",
-    kind: "Plan group",
-    intent: "Tests, documentation, rollout, and other project-wide work in this plan.",
-  });
-  if (needsReview) temporaryNodes.push({
-    id: needsReviewId,
-    planType: "group",
-    groupKind: "needs-review",
-    parent: null,
-    name: "Needs Review",
-    kind: "Plan group",
-    intent: "Plan work that needs an explicit component before implementation.",
-  });
 
   const projectedEndpoint = (id) => proposedBySource.get(id) || id;
 
@@ -176,23 +169,6 @@ export function buildPlanProjection(review, nodes, edges) {
       temporaryNodes.push(cardFor(
         reviewId, impact, projectedEndpoint(impact.targetId), "internal change",
       ));
-    } else if (impact.level === "support") {
-      temporaryNodes.push(cardFor(
-        reviewId,
-        impact,
-        impact.targetId ? projectedEndpoint(impact.targetId) : projectSupportId,
-        "supporting change",
-      ));
-    } else if (impact.level === "unresolved") {
-      const numbers = list(impact.steps);
-      const raw = review && review.status === "error"
-        ? numbers.map((number) => stepText.get(number) || "").filter(Boolean).join(" ")
-        : "";
-      const display = raw ? {
-        title: "Plan step" + (numbers.length === 1 ? " " : "s ") + numbers.join(", "),
-        why: raw,
-      } : {};
-      temporaryNodes.push(cardFor(reviewId, impact, needsReviewId, "needs review", display));
     }
   }
 

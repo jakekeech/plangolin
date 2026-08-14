@@ -75,18 +75,18 @@ setup: no separate npm install, API key, account, or build step.
 </p>
 
 Structural changes stay at the system level. Internal work appears inside the
-most specific affected component, and tests, documentation, rollout, and other
-supporting work appear beside the closest relevant component. If plangolin
-cannot place a step safely, it remains visible under **Needs Review** rather
-than disappearing into a no-change result.
+most specific affected component. Tests, documentation, rollout, and other
+supporting details remain in the plan instead of becoming extra graph nodes.
+If plangolin cannot place a change safely, the panel says so without inventing
+a component on the canvas.
 
 ## What you are reviewing
 
 **Solid blocks** are parts of the system that already exist. **Dashed blocks
 and lines** are what the plan proposes to add. A travelling dash shows which
 way a proposed connection runs. A planned-change badge on a component means
-there is internal or supporting work inside it; double-click the component to
-open that nested review.
+there is internal work inside it; double-click the component to open that
+nested review.
 
 The current proposal is lit; everything else dims. It dims rather than
 disappearing because the rest of the system is what makes the proposed change
@@ -98,7 +98,7 @@ mean anything.
 | `K` / `C` | Keep or cut the current proposal |
 | **?** | Show the request that started the plan |
 | **drag the title bar** | Move the review panel |
-| **▸ what the plan said** | Check the proposal against the plan's own wording |
+| **Details** | Check rationale, evidence, and the plan's original wording |
 
 Nothing opens a browser tab automatically. Set `PLANGOLIN_OPEN=1` if you want
 the review to open itself.
@@ -197,9 +197,9 @@ no account and no machine detail — deleting the file makes a new one. It exist
 to rate limit and to answer "did anyone run this twice". There are no accounts,
 no tokens and no database.
 
-When the network or model is unavailable, plangolin keeps the structural
-grouping and states the reason. Unusable model output is dropped rather than
-allowed to corrupt the sheet.
+When the network or model is unavailable, plangolin keeps the existing system
+map visible and offers Retry or Skip. Unusable model output is dropped rather
+than allowed to corrupt the sheet.
 
 ## What it does not do
 
@@ -210,7 +210,7 @@ Worth knowing before you rely on it:
   cannot tell you the implementation will work.
 - **The mapping from plan steps to blocks is model-produced**, so a step can
   land on the wrong block or on none. Every proposal carries the plan's own
-  wording under **▸ what the plan said**, which is there so you can check it
+  wording under **Details**, which is there so you can check it
   rather than trust it.
 - **A review waits ten minutes, then gives up** and lets the agent proceed with
   the plan as written. Nothing is a dead end, but an unanswered review is not a
