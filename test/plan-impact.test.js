@@ -116,6 +116,75 @@ test("keeps component work on an existing component", () => {
   assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
     { level: "component", targetId: "api", steps: [2] },
   ]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 1, complete: true });
+});
+
+test("repairs a blank component target from one unambiguous file owner", () => {
+  const result = validate([impact({ targetId: "", files: ["src/api.js"], steps: [2] })], {
+    steps: [STEPS[1]],
+  });
+  assert.equal(result.coverage.complete, true);
+  assert.deepEqual(result.impacts.map(({ level, targetId }) => ({ level, targetId })), [
+    { level: "component", targetId: "api" },
+  ]);
+});
+
+test("does not invent placement when evidence has multiple or no owners", () => {
+  const withoutOwner = validate([impact({ targetId: "", files: [], steps: [2] })], {
+    steps: [STEPS[1]],
+  });
+  assert.deepEqual(withoutOwner.impacts, []);
+  assert.deepEqual(withoutOwner.coverage, { claimed: 0, total: 1, complete: false });
+  assert.deepEqual(withoutOwner.rejectedSteps, [2]);
+
+  const ambiguous = validate([impact({ targetId: "", files: ["src/api.js"], steps: [2] })], {
+    nodes: [
+      NODES[0],
+      { ...NODES[0], id: "api-shadow" },
+    ],
+    steps: [STEPS[1]],
+  });
+  assert.deepEqual(ambiguous.impacts, []);
+  assert.deepEqual(ambiguous.rejectedSteps, [2]);
+});
+
+test("legacy support with a valid target becomes nested component detail", () => {
+  const result = validate([impact({ level: "support", targetId: "api", steps: [2] })], {
+    steps: [STEPS[1]],
+  });
+  assert.equal(result.impacts[0].level, "component");
+  assert.equal(result.impacts[0].targetId, "api");
+});
+
+test("repairs legacy unplaced work to the deepest literal file owner", () => {
+  const nodes = [
+    {
+      id: "backend", name: "Backend", kind: "Layer", intent: "Owns server code.",
+      anchor: { dir: "src" },
+    },
+    NODES[0],
+  ];
+  const result = validate([
+    impact({ level: "unresolved", targetId: "", files: ["src/api.js"], steps: [2], size: "" }),
+  ], { nodes, steps: [STEPS[1]] });
+
+  assert.deepEqual(result.impacts.map(({ level, targetId }) => ({ level, targetId })), [
+    { level: "component", targetId: "api" },
+  ]);
+});
+
+test("does not use unsafe or directory-prefix-lookalike paths as ownership evidence", () => {
+  const nodes = [{
+    id: "app", name: "App", kind: "Module", intent: "Owns app code.",
+    anchor: { dir: "src/app" },
+  }];
+  const result = validate([
+    impact({ targetId: "", files: ["../src/app/secret.js"], steps: [2] }),
+    impact({ targetId: "", files: ["src/application/main.js"], steps: [2] }),
+  ], { nodes, steps: [STEPS[1]] });
+
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
 });
 
 test("groups internal work into one nested change per component", () => {
@@ -156,7 +225,7 @@ test("accepts a component target declared by a later addition", () => {
   ]);
 });
 
-test("orphan dependents become unresolved when their proposed component is invalidated", () => {
+test("rejects orphan dependents when their proposed component is invalidated", () => {
   const result = validate([
     impact({
       level: "system", targetId: "", title: "Add limiter", steps: [1],
@@ -169,15 +238,12 @@ test("orphan dependents become unresolved when their proposed component is inval
     impact({ targetId: "limiter", title: "Tune limiter", steps: [2] }),
   ], { steps: STEPS.slice(0, 2) });
 
-  assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
-    { level: "unresolved", targetId: "", steps: [1] },
-    { level: "unresolved", targetId: "", steps: [2] },
-  ]);
-  assert.equal(result.coverage.claimed, 2);
-  assert.equal(result.coverage.total, 2);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [1, 2]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 2, complete: false });
 });
 
-test("orphan dependents become unresolved when their proposed component loses its steps", () => {
+test("rejects orphan dependents when their proposed component loses its steps", () => {
   const result = validate([
     impact({
       level: "system", targetId: "", title: "Update API", steps: [1],
@@ -195,33 +261,35 @@ test("orphan dependents become unresolved when their proposed component loses it
 
   assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
     { level: "system", targetId: "", steps: [1] },
-    { level: "unresolved", targetId: "", steps: [2] },
   ]);
-  assert.equal(result.coverage.claimed, 2);
+  assert.deepEqual(result.rejectedSteps, [1, 2]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 2, complete: false });
 });
 
-test("keeps component-scoped and project-wide support", () => {
+test("normalizes targeted support and rejects unplaced project-wide support", () => {
   const result = validate([
     impact({ level: "support", targetId: "api", title: "Test API", steps: [2], size: "" }),
     impact({ level: "support", targetId: "", title: "Document rollout", steps: [3], size: "" }),
   ], { steps: STEPS.slice(1, 3) });
 
-  assert.deepEqual(result.impacts.map(({ targetId, steps }) => ({ targetId, steps })), [
-    { targetId: "api", steps: [2] },
-    { targetId: "", steps: [3] },
+  assert.deepEqual(result.impacts.map(({ level, targetId, steps }) => ({ level, targetId, steps })), [
+    { level: "component", targetId: "api", steps: [2] },
   ]);
+  assert.deepEqual(result.rejectedSteps, [3]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 2, complete: false });
 });
 
-test("keeps a valid unresolved impact without a target or operations", () => {
+test("rejects unresolved work without unambiguous file ownership", () => {
   const result = validate([impact({
     level: "unresolved", targetId: "", title: "Place request work", steps: [2], size: "",
   })], { steps: [STEPS[1]] });
 
-  assert.equal(result.impacts[0].level, "unresolved");
-  assert.equal(result.impacts[0].targetId, "");
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 1, complete: false });
 });
 
-test("repairs a missing input step as generated unresolved", () => {
+test("reports a missing input step as rejected and incomplete", () => {
   const result = validate([impact({
     level: "system", targetId: "", title: "Update API responsibility", steps: [1],
     responsibilities: [{ id: "api", intent: "Serves controlled requests.", why: "Adds limiting." }],
@@ -229,16 +297,22 @@ test("repairs a missing input step as generated unresolved", () => {
 
   assert.deepEqual(result.impacts.map(({ key, level, steps }) => ({ key, level, steps })), [
     { key: "impact:1", level: "system", steps: [1] },
-    { key: "impact:2", level: "unresolved", steps: [2] },
   ]);
-  assert.equal(result.coverage.claimed, 2);
-  assert.equal(result.coverage.total, 2);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 2, complete: false });
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "missing_step"));
+});
+
+test("counts duplicate input step occurrences as incomplete coverage", () => {
+  const result = validate([impact({ steps: [2] })], { steps: [STEPS[1], STEPS[1]] });
+
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 2, complete: false });
 });
 
 test("resolves duplicate steps by level precedence and then response order", () => {
   const result = validate([
-    impact({ level: "support", targetId: "", title: "Support first", steps: [2, 3], size: "" }),
+    impact({ level: "support", targetId: "api", title: "Support first", steps: [2, 3], size: "" }),
     impact({ title: "Component winner", steps: [2] }),
     impact({ title: "Component later", steps: [2] }),
     impact({
@@ -248,10 +322,12 @@ test("resolves duplicate steps by level precedence and then response order", () 
   ], { steps: STEPS.slice(1, 3) });
 
   assert.deepEqual(result.impacts.map(({ title, steps }) => ({ title, steps })), [
-    { title: "Component winner", steps: [2] },
+    { title: "Support first", steps: [2] },
     { title: "System winner", steps: [3] },
   ]);
   assert.equal(result.diagnostics.conflicts, 3);
+  assert.deepEqual(result.rejectedSteps, [2, 3]);
+  assert.deepEqual(result.coverage, { claimed: 2, total: 2, complete: false });
 });
 
 test("drops an impact left with no owned steps", () => {
@@ -262,9 +338,11 @@ test("drops an impact left with no owned steps", () => {
 
   assert.deepEqual(result.impacts.map(({ title }) => title), ["First"]);
   assert.equal(result.diagnostics.droppedImpacts, 1);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 1, complete: false });
 });
 
-test("converts invalid level, size, target, endpoint, and disconnection impacts to unresolved", () => {
+test("rejects invalid level, size, target, endpoint, and disconnection impacts", () => {
   const result = validate([
     impact({ level: "invented", steps: [1] }),
     impact({ size: "huge", steps: [2] }),
@@ -279,10 +357,9 @@ test("converts invalid level, size, target, endpoint, and disconnection impacts 
     }),
   ]);
 
-  assert.deepEqual(result.impacts.map(({ level }) => level), [
-    "unresolved", "unresolved", "unresolved", "unresolved",
-  ]);
-  assert.deepEqual(result.impacts.flatMap((entry) => entry.steps).sort((a, b) => a - b), [1, 2, 3, 4]);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [1, 2, 3, 4]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 4, complete: false });
   assert.equal(result.diagnostics.invalidOperations, 2);
 });
 
@@ -292,24 +369,27 @@ test("rejects a proposed connection that already exists in the reviewed graph", 
     connections: [{ from: "api", to: "database", label: "queries" }],
   })], { steps: [STEPS[0]] });
 
-  assert.equal(result.impacts[0].level, "unresolved");
-  assert.deepEqual(result.impacts[0].connections, []);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [1]);
+  assert.equal(result.coverage.complete, false);
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "invalid_connection"));
 });
 
-test("treats malformed target and structural array shapes as unresolved", () => {
+test("rejects malformed target and structural array shapes", () => {
   const malformedTarget = impact({ targetId: null, steps: [1] });
   const malformedOperations = impact({ steps: [2] });
   delete malformedOperations.disconnections;
 
   const result = validate([malformedTarget, malformedOperations], { steps: STEPS.slice(0, 2) });
 
-  assert.deepEqual(result.impacts.map(({ level }) => level), ["unresolved", "unresolved"]);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [1, 2]);
+  assert.equal(result.coverage.complete, false);
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "invalid_target"));
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "invalid_operations_shape"));
 });
 
-test("removes non-system structural operations and makes their steps unresolved", () => {
+test("rejects non-system structural operations", () => {
   const result = validate([impact({
     steps: [2],
     additions: [{
@@ -318,16 +398,19 @@ test("removes non-system structural operations and makes their steps unresolved"
     }],
   })], { steps: [STEPS[1]] });
 
-  assert.equal(result.impacts[0].level, "unresolved");
-  assert.deepEqual(result.impacts[0].additions, []);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.equal(result.coverage.complete, false);
   assert.equal(result.diagnostics.invalidOperations, 1);
 });
 
-test("converts a system impact with no valid structural operation to unresolved", () => {
+test("rejects a system impact with no valid structural operation", () => {
   const result = validate([impact({ level: "system", targetId: "", steps: [1] })], {
     steps: [STEPS[0]],
   });
-  assert.equal(result.impacts[0].level, "unresolved");
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [1]);
+  assert.equal(result.coverage.complete, false);
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "system_without_operation"));
 });
 
@@ -369,9 +452,9 @@ test("diagnoses blank titles, oversized strings, and out-of-range step numbers",
     steps: [2, 99],
   })], { steps: [STEPS[1]] });
 
-  assert.equal(result.impacts[0].level, "unresolved");
-  assert.equal(result.impacts[0].title, "Needs review");
-  assert.equal(result.impacts[0].why.length, 200);
+  assert.deepEqual(result.impacts, []);
+  assert.deepEqual(result.rejectedSteps, [2]);
+  assert.deepEqual(result.coverage, { claimed: 0, total: 1, complete: false });
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "blank_title"));
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "oversized_string"));
   assert.ok(result.diagnostics.issues.some((issue) => issue.code === "invalid_step"));
@@ -396,7 +479,7 @@ test("scrubs nonnumeric invalid step values from diagnostics", () => {
 test("assigns stable client keys in preserved final order", () => {
   const raw = { impacts: [
     impact({ title: "First", steps: [1] }),
-    impact({ level: "support", targetId: "", title: "Second", steps: [2], size: "" }),
+    impact({ level: "support", targetId: "database", title: "Second", steps: [2], size: "" }),
   ] };
   const context = { nodes: NODES, edges: EDGES, steps: STEPS.slice(0, 2) };
 
@@ -424,7 +507,7 @@ test("reports raw and kept category and operation counts", () => {
     system: 1, component: 0, support: 1, unresolved: 0,
   });
   assert.deepEqual(result.diagnostics.kept.categories, {
-    system: 1, component: 0, support: 1, unresolved: 0,
+    system: 1, component: 0,
   });
   assert.deepEqual(result.diagnostics.raw.operations, {
     additions: 1, removals: 0, responsibilities: 0, connections: 1, disconnections: 0,
@@ -432,6 +515,8 @@ test("reports raw and kept category and operation counts", () => {
   assert.deepEqual(result.diagnostics.kept.operations, {
     additions: 1, removals: 0, responsibilities: 0, connections: 1, disconnections: 0,
   });
+  assert.deepEqual(result.rejectedSteps, [3]);
+  assert.deepEqual(result.coverage, { claimed: 1, total: 2, complete: false });
 });
 
 test("buildImpactPrompt includes final component context, directed edges, and original step numbers", () => {

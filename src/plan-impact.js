@@ -5,7 +5,7 @@
 import { callTask } from "./llm.js";
 
 const LEVELS = ["system", "component", "support", "unresolved"];
-const LEVEL_RANK = new Map(LEVELS.map((level, rank) => [level, rank]));
+const LEVEL_RANK = new Map([["system", 0], ["component", 1]]);
 const OPERATION_NAMES = [
   "additions", "removals", "responsibilities", "connections", "disconnections",
 ];
@@ -30,6 +30,15 @@ function counts() {
   };
 }
 
+function keptCounts() {
+  return {
+    categories: { system: 0, component: 0 },
+    operations: {
+      additions: 0, removals: 0, responsibilities: 0, connections: 0, disconnections: 0,
+    },
+  };
+}
+
 function countRaw(rawImpacts) {
   const result = counts();
   for (const raw of rawImpacts) {
@@ -41,7 +50,7 @@ function countRaw(rawImpacts) {
 }
 
 function countKept(impacts) {
-  const result = counts();
+  const result = keptCounts();
   for (const impact of impacts) {
     result.categories[impact.level]++;
     for (const name of OPERATION_NAMES) result.operations[name] += impact[name].length;
@@ -63,6 +72,34 @@ function safePath(value) {
   const parts = path.split("/");
   if (parts.some((part) => part === "..")) return "";
   return parts.filter((part) => part && part !== ".").join("/");
+}
+
+function nodeOwnsFile(node, path) {
+  const paths = list(node?.anchor?.paths).map(safePath).filter(Boolean);
+  const dir = safePath(node?.anchor?.dir);
+  return paths.includes(path) || Boolean(dir && (path === dir || path.startsWith(`${dir}/`)));
+}
+
+function deepestSingleOwner(nodes, files) {
+  const safeFiles = [...new Set(list(files).map(safePath).filter(Boolean))];
+  if (!safeFiles.length) return "";
+
+  const parents = new Map(nodes.map((node) => [node.id, node.parent || ""]));
+  const depth = (id) => {
+    const seen = new Set([id]);
+    let result = 0;
+    for (let parent = parents.get(id); parent && !seen.has(parent); parent = parents.get(parent)) {
+      seen.add(parent);
+      result++;
+    }
+    return result;
+  };
+  const candidates = nodes.filter((node) =>
+    typeof node?.id === "string" && safeFiles.every((file) => nodeOwnsFile(node, file)));
+  if (!candidates.length) return "";
+  const deepest = Math.max(...candidates.map((node) => depth(node.id)));
+  const winners = candidates.filter((node) => depth(node.id) === deepest);
+  return winners.length === 1 ? winners[0].id : "";
 }
 
 function literalInSteps(value, stepNumbers, stepText) {
@@ -165,28 +202,49 @@ function validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, dia
   return { ids, byImpact };
 }
 
-function unresolvedCandidate(candidate) {
-  return {
-    ...candidate,
-    level: "unresolved",
-    targetId: "",
-    size: "",
-    additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
-  };
-}
-
 function validateCandidates(rawImpacts, context) {
   const {
-    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics,
+    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics, nodes,
+    rejectedStepIds,
   } = context;
 
   return rawImpacts.map((rawValue, sourceIndex) => {
     const raw = isObject(rawValue) ? rawValue : {};
     const steps = validateSteps(raw.steps, validSteps, diagnostics, sourceIndex);
     const originalLevel = raw.level;
-    let level = LEVEL_RANK.has(originalLevel) ? originalLevel : "unresolved";
-    let invalidImpact = level !== originalLevel;
-    if (invalidImpact) diagnostics.issues.push({ code: "invalid_level", sourceIndex });
+    const targetIsString = typeof raw.targetId === "string";
+    const rawTargetId = targetIsString ? raw.targetId : "";
+    const ownerId = targetIsString ? deepestSingleOwner(nodes, raw.files) : "";
+    let level = originalLevel;
+    let targetId = rawTargetId;
+    let invalidImpact = false;
+
+    if (!LEVELS.includes(originalLevel)) {
+      diagnostics.issues.push({ code: "invalid_level", sourceIndex });
+      invalidImpact = true;
+    } else if (!targetIsString) {
+      diagnostics.issues.push({ code: "invalid_target", sourceIndex });
+      invalidImpact = true;
+    } else if (originalLevel === "system") {
+      if (targetId) {
+        diagnostics.issues.push({ code: "invalid_target", sourceIndex });
+        invalidImpact = true;
+      }
+    } else if (originalLevel === "component") {
+      if (!targetId && ownerId) targetId = ownerId;
+      if (!targetId || !knownIds.has(targetId)) {
+        diagnostics.issues.push({ code: "invalid_target", sourceIndex });
+        invalidImpact = true;
+      }
+    } else if (originalLevel === "support" && targetId && knownIds.has(targetId)) {
+      level = "component";
+    } else if (ownerId) {
+      level = "component";
+      targetId = ownerId;
+    } else {
+      diagnostics.issues.push({ code: "invalid_placement", sourceIndex });
+      invalidImpact = true;
+    }
 
     const size = ["", "small", "substantial"].includes(raw.size) ? raw.size : "";
     if (size !== raw.size) {
@@ -266,40 +324,23 @@ function validateCandidates(rawImpacts, context) {
       invalidImpact = true;
     }
 
-    const targetIsString = typeof raw.targetId === "string";
-    const targetId = targetIsString ? raw.targetId : "";
-    if (!targetIsString) {
-      diagnostics.issues.push({ code: "invalid_target", sourceIndex });
-      invalidImpact = true;
-    } else if (level === "component" && !knownIds.has(targetId)) {
-      diagnostics.issues.push({ code: "invalid_target", sourceIndex });
-      invalidImpact = true;
-    } else if (level === "support" && targetId && !knownIds.has(targetId)) {
-      diagnostics.issues.push({ code: "invalid_target", sourceIndex });
-      invalidImpact = true;
-    } else if ((level === "system" || level === "unresolved") && targetId) {
-      diagnostics.issues.push({ code: "invalid_target", sourceIndex });
-      invalidImpact = true;
-    }
-
     // A malformed structural claim cannot be repaired by keeping its surviving
-    // operations: the whole decision becomes unresolved, without structure.
+    // operations: reject the whole decision, without keeping partial structure.
     if (level === "system" && diagnostics.issues.some((issue) =>
       issue.sourceIndex === sourceIndex && issue.code.startsWith("invalid_") &&
       ["invalid_addition", "invalid_removal", "invalid_responsibility", "invalid_connection", "invalid_disconnection"]
         .includes(issue.code))) invalidImpact = true;
 
     if (invalidImpact) {
-      return unresolvedCandidate({
-        sourceIndex, level, targetId, title, why, size, steps, ...evidence, ...operations,
-      });
+      for (const step of steps) rejectedStepIds.add(step);
+      return null;
     }
 
     return { sourceIndex, level, targetId, title, why, size, steps, ...evidence, ...operations };
-  });
+  }).filter(Boolean);
 }
 
-function revalidateCandidateReferences(candidates, existingIds, diagnostics) {
+function revalidateCandidateReferences(candidates, existingIds, diagnostics, rejectedStepIds) {
   let validated = candidates;
   for (;;) {
     const reachableIds = new Set(existingIds);
@@ -310,31 +351,34 @@ function revalidateCandidateReferences(candidates, existingIds, diagnostics) {
 
     let changed = false;
     validated = validated.map((candidate) => {
-      if (candidate.level === "unresolved") return candidate;
-      const orphanTarget = (candidate.level === "component" || candidate.level === "support") &&
-        candidate.targetId && !reachableIds.has(candidate.targetId);
+      const orphanTarget = candidate.level === "component" && !reachableIds.has(candidate.targetId);
       const orphanConnections = candidate.connections.filter((connection) =>
         !reachableIds.has(connection.from) || !reachableIds.has(connection.to));
       if (!orphanTarget && !orphanConnections.length) return candidate;
       diagnostics.invalidOperations += orphanConnections.length;
       diagnostics.issues.push({ code: "orphan_reference", sourceIndex: candidate.sourceIndex });
+      for (const step of candidate.steps) rejectedStepIds.add(step);
       changed = true;
-      return unresolvedCandidate(candidate);
-    });
+      return null;
+    }).filter(Boolean);
     if (!changed) return validated;
   }
 }
 
-function resolveStepConflicts(candidates, diagnostics) {
+function resolveStepConflicts(candidates, diagnostics, rejectedStepIds) {
   const owner = new Map();
   for (const candidate of candidates) {
     for (const step of candidate.steps) {
       const incumbent = owner.get(step);
       if (!incumbent || LEVEL_RANK.get(candidate.level) < LEVEL_RANK.get(incumbent.level)) {
-        if (incumbent) diagnostics.conflicts++;
+        if (incumbent) {
+          diagnostics.conflicts++;
+          rejectedStepIds.add(step);
+        }
         owner.set(step, candidate);
       } else {
         diagnostics.conflicts++;
+        rejectedStepIds.add(step);
       }
     }
   }
@@ -352,21 +396,24 @@ function resolveStepConflicts(candidates, diagnostics) {
   return owned.filter((candidate) => candidate.steps.length);
 }
 
-function addMissingAsUnresolved(owned, steps, diagnostics) {
-  const claimed = new Set(owned.flatMap((impact) => impact.steps));
-  const repaired = [...owned];
-  for (const step of steps) {
-    if (claimed.has(step.n)) continue;
-    diagnostics.issues.push({ code: "missing_step", step: step.n });
-    repaired.push({
-      sourceIndex: Number.MAX_SAFE_INTEGER,
-      level: "unresolved", targetId: "", title: "Needs review",
-      why: "The impact response did not place this step.", size: "", steps: [step.n],
-      files: [], symbols: [],
-      additions: [], removals: [], responsibilities: [], connections: [], disconnections: [],
-    });
+function stepCoverage(impacts, steps, diagnostics, rejectedStepIds) {
+  const remainingClaims = new Map();
+  for (const impact of impacts) {
+    for (const step of impact.steps) remainingClaims.set(step, (remainingClaims.get(step) || 0) + 1);
   }
-  return repaired;
+  const rejected = [];
+  let claimed = 0;
+  for (const step of steps) {
+    const claims = remainingClaims.get(step.n) || 0;
+    if (claims) {
+      remainingClaims.set(step.n, claims - 1);
+      claimed++;
+    } else {
+      diagnostics.issues.push({ code: "missing_step", step: step.n });
+    }
+    if (!claims || rejectedStepIds.has(step.n)) rejected.push(step.n);
+  }
+  return { rejectedSteps: rejected, claimed };
 }
 
 function groupComponentImpacts(impacts) {
@@ -397,18 +444,21 @@ function groupComponentImpacts(impacts) {
   return out;
 }
 
-function assignTrustedKeys(repaired, diagnostics, steps) {
-  const impacts = repaired.map(({ sourceIndex: _sourceIndex, ...impact }, index) => ({
+function assignTrustedKeys(validated, diagnostics, steps, rejectedStepIds) {
+  const impacts = validated.map(({ sourceIndex: _sourceIndex, ...impact }, index) => ({
     key: `impact:${index + 1}`,
     ...impact,
   }));
+  const { rejectedSteps, claimed } = stepCoverage(impacts, steps, diagnostics, rejectedStepIds);
   diagnostics.kept = countKept(impacts);
   return {
     impacts,
+    rejectedSteps,
     diagnostics,
     coverage: {
-      claimed: new Set(impacts.flatMap((impact) => impact.steps)).size,
+      claimed,
       total: steps.length,
+      complete: impacts.length > 0 && claimed === steps.length && rejectedSteps.length === 0,
     },
   };
 }
@@ -456,23 +506,25 @@ export function validateImpacts(raw, { nodes = [], edges = [], steps = [] }) {
   const rawImpacts = isObject(raw) && Array.isArray(raw.impacts) ? raw.impacts : [];
   const diagnostics = {
     issues: [], invalidOperations: 0, conflicts: 0, droppedImpacts: 0,
-    raw: countRaw(rawImpacts), kept: counts(),
+    raw: countRaw(rawImpacts), kept: keptCounts(),
   };
   const existingIds = new Set(nodes.map((node) => node.id).filter((id) => typeof id === "string"));
   const validSteps = new Set(steps.map((step) => step.n));
   const stepText = new Map(steps.map((step) => [step.n, String(step.text || "")]));
   const existingEdges = new Set(edges.map((edge) => `${edge.from}\0${edge.to}`));
+  const rejectedStepIds = new Set();
 
   const additions = validateAllAdditions(rawImpacts, existingIds, validSteps, stepText, diagnostics);
   const knownIds = new Set([...existingIds, ...additions.ids]);
   const candidates = revalidateCandidateReferences(validateCandidates(rawImpacts, {
-    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics,
-  }), existingIds, diagnostics);
+    additions, existingIds, knownIds, existingEdges, validSteps, stepText, diagnostics, nodes,
+    rejectedStepIds,
+  }), existingIds, diagnostics, rejectedStepIds);
   const owned = revalidateCandidateReferences(
-    resolveStepConflicts(candidates, diagnostics), existingIds, diagnostics,
+    resolveStepConflicts(candidates, diagnostics, rejectedStepIds), existingIds, diagnostics,
+    rejectedStepIds,
   );
-  const repaired = addMissingAsUnresolved(groupComponentImpacts(owned), steps, diagnostics);
-  return assignTrustedKeys(repaired, diagnostics, steps);
+  return assignTrustedKeys(groupComponentImpacts(owned), diagnostics, steps, rejectedStepIds);
 }
 
 function mapId(value, idFor) {
@@ -522,7 +574,6 @@ export async function planImpact(context, steps, { call = callTask, deferValidat
     ...validated,
     provider: response.provider,
     model: response.model,
-    outcome: validated.diagnostics.invalidOperations ||
-      validated.impacts.some((impact) => impact.level === "unresolved") ? "partial" : "ready",
+    outcome: validated.coverage.complete ? "ready" : "partial",
   };
 }
