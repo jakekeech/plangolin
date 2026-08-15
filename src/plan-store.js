@@ -191,10 +191,12 @@ export function createPlanStore() {
 
       try {
         const out = await delta(nodes, review.steps);
-        const changedIds = new Set([
-          ...out.delta.touches.map((touch) => touch.id),
-          ...out.delta.connections.flatMap((connection) => [connection.from, connection.to]),
-        ]);
+        /* Reach means "existing callers may be affected by a changed block."
+           A proposed line does not by itself change the contract of either
+           endpoint, so treating both ends as changed made unrelated callers
+           glow during connection steps. Explicit touches are the only plan
+           facts that justify propagating impact through existing edges. */
+        const changedIds = new Set(out.delta.touches.map((touch) => touch.id));
         store.setDelta(id, {
           delta: out.delta,
           reach: planReach(edges, changedIds),

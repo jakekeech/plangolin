@@ -692,6 +692,29 @@ import { createRolledLoader } from "./rolled-loader.js";
     return null;
   }
 
+  /* The deepest view that can show every block a plan step refers to. A
+     single nested block opens its parent; siblings open their shared parent;
+     blocks in different branches meet at the top level. Proposed blocks have
+     no persisted parent, so they belong to the top-level view. */
+  function planViewFor(ids) {
+    const parentPath = (id) => {
+      const path = [];
+      let n = id ? node(id) : null;
+      if (!n) return [null];
+      n = n.parent ? node(n.parent) : null;
+      while (n) {
+        path.push(n.id);
+        n = n.parent ? node(n.parent) : null;
+      }
+      path.push(null);
+      return path;
+    };
+    const paths = (ids || []).map(parentPath);
+    if (!paths.length) return null;
+    return paths[0].find((candidate) =>
+      paths.every((path) => path.includes(candidate))) ?? null;
+  }
+
   // The breadcrumb trail for a view: root-most ancestor first, id itself
   // last. Derived from `parent`, never stored.
   function viewPath(id) {
@@ -1775,6 +1798,12 @@ import { createRolledLoader } from "./rolled-loader.js";
       el.tabIndex = 0;
       el.innerHTML =
         (moved ? '<span class="node-changed">' + moved + ' changed</span>' : "") +
+        '<button class="node-edit" type="button" aria-label="Edit ' + esc(n.name) + '">' +
+          '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">' +
+            '<path d="M3 11.8 2.5 14l2.2-.5L12.8 5.4 11.1 3.7 3 11.8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>' +
+            '<path d="m10.2 4.6 1.7 1.7" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+          '</svg>' +
+        '</button>' +
         // The block's own kind is what the badge says — design §5 makes kind
         // free text that drives the *icon*, with a generic icon when it isn't
         // recognised. Only a block with no kind at all falls back to the
@@ -2389,13 +2418,13 @@ import { createRolledLoader } from "./rolled-loader.js";
     d.additions.forEach((a) => out.push({
       key: planKey("add", a.id), mark: "+", name: a.name, why: a.intent,
       steps: a.steps, lit: [a.id], detail: a.dir ? "New block · lives in " + a.dir : "New block",
-      files: a.files || [], reach: reachFor([a.id]),
+      files: a.files || [], reach: [],
     }));
     d.connections.forEach((c) => out.push({
       key: planKey("edge", c.from, c.to), mark: "→",
       name: nameOf(c.from) + " → " + nameOf(c.to), why: c.label,
       steps: c.steps, lit: [c.from, c.to], wire: c.from + " " + c.to,
-      detail: "New line between two blocks", reach: reachFor([c.from, c.to]),
+      detail: "New line between two blocks", reach: [],
     }));
     d.touches.forEach((x) => out.push({
       key: planKey("touch", x.id), mark: "~", name: nameOf(x.id), why: x.why,
@@ -2452,7 +2481,7 @@ import { createRolledLoader } from "./rolled-loader.js";
            (s.why ? ": " + s.why + "." : ".");
   }
 
-  function renderPlan() {
+  function renderPlan(options = {}) {
     const note = document.getElementById("plan-note");
     const body = document.getElementById("plan-body");
     const loading = document.getElementById("plan-loading");
@@ -2577,7 +2606,7 @@ import { createRolledLoader } from "./rolled-loader.js";
         : "";
       const reach = s.reach || [];
       document.getElementById("plan-reach").innerHTML = reach.length
-        ? '<span class="plan-files-label">Already used by</span>' +
+        ? '<span class="plan-files-label">Potentially affected</span>' +
           reach.map((r) => esc(r.name) + ' <i>(' + esc(r.label) + ")</i>").join(", ")
         : "";
       const said = saidFor(s.steps);
@@ -2592,7 +2621,8 @@ import { createRolledLoader } from "./rolled-loader.js";
     document.getElementById("plan-prev").disabled = planAt === 0;
     document.getElementById("plan-next").disabled = planAt >= list.length - 1;
 
-    litPlanNodes(s);
+    if (options.focus === false) applyPlanLit();
+    else litPlanNodes(s);
     renderAsk();
     renderHint();
     positionHint();
@@ -2610,12 +2640,35 @@ import { createRolledLoader } from "./rolled-loader.js";
     const s = planStepList()[planAt];
     const on = plan && plan.status === "ready" && s && !s.summary;
     shell.dataset.planSpot = on ? "on" : "off";
-    const lit = new Set(on ? s.lit : []);
-    const reached = new Set(on ? (s.reach || []).map((r) => r.id) : []);
+    const visible = (id) => levelAncestor(id) || (ghostAt.has(id) ? id : null);
+    const lit = new Set(on ? s.lit.map(visible).filter(Boolean) : []);
+    const directAt = new Map();
+    if (on) {
+      s.lit.forEach((id) => {
+        const here = visible(id);
+        if (!here) return;
+        if (!directAt.has(here)) directAt.set(here, []);
+        directAt.get(here).push(id);
+      });
+    }
+    const reached = new Set(on
+      ? (s.reach || []).map((r) => visible(r.id)).filter(Boolean)
+      : []);
     for (const el of world.querySelectorAll(".node")) {
       const isLit = lit.has(el.dataset.id);
       el.dataset.lit = String(isLit);
       el.dataset.reach = String(!isLit && reached.has(el.dataset.id));
+      delete el.dataset.spotLabel;
+      if (isLit) {
+        const ids = directAt.get(el.dataset.id) || [];
+        if (ids.length > 1) el.dataset.spotLabel = ids.length + " parts inside";
+        else if (ids.length === 1 && ids[0] !== el.dataset.id) {
+          const hidden = node(ids[0]);
+          el.dataset.spotLabel = (hidden ? hidden.name : ids[0]) + " inside";
+        } else {
+          el.dataset.spotLabel = "current step";
+        }
+      }
     }
     for (const el of wires.querySelectorAll("path")) {
       el.dataset.lit = String(on && !!(s && s.wire) && el.dataset.pair === s.wire);
@@ -2791,7 +2844,17 @@ import { createRolledLoader } from "./rolled-loader.js";
   function planGo(delta) {
     const list = planStepList();
     planAt = Math.max(0, Math.min(list.length - 1, planAt + delta));
-    renderPlan();
+    const step = list[planAt];
+    // Potential impact is part of the step's context. Choose a view that can
+    // show both the direct subject and its affected callers; otherwise opening
+    // the subject's parent would hide the amber nodes in another branch.
+    const visibleIds = step && !step.summary
+      ? [...step.lit, ...(step.reach || []).map((r) => r.id)]
+      : [];
+    const nextView = visibleIds.length ? planViewFor(visibleIds) : null;
+    const changesView = nextView !== viewRoot;
+    renderPlan({ focus: !changesView });
+    if (changesView) goToView(nextView);
   }
 
   document.getElementById("plan-next").addEventListener("click", () => planGo(1));
@@ -4194,7 +4257,7 @@ import { createRolledLoader } from "./rolled-loader.js";
   function select(type, id, opts) {
     S.sel = { type: type, id: id };
     hunkView = null;
-    if (!opts || opts.panel !== false) inspectorOpen = true;
+    inspectorOpen = !opts || opts.panel !== false;
     render();
   }
 
@@ -4370,6 +4433,19 @@ import { createRolledLoader } from "./rolled-loader.js";
   const DBLCLICK_MS = 400;
 
   canvas.addEventListener("mousedown", (ev) => {
+    // Editing is deliberately separate from selecting and dragging. Handle
+    // it on mousedown because select() redraws the node, so the original
+    // button would no longer exist by the time the browser emitted click.
+    const editEl = ev.target.closest(".node-edit");
+    if (editEl) {
+      const nodeEl = editEl.closest(".node");
+      if (!nodeEl || nodeEl.dataset.proposed === "true") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      select("node", nodeEl.dataset.id);
+      return;
+    }
+
     // A name in the "holds" line is a way in, not a handle. Taken before
     // anything else so pressing one never starts dragging the card it sits
     // on — mousedown, not click, because the drag would already have begun
@@ -4517,7 +4593,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (mode === "node") {
       const el = world.querySelector(".node.dragging");
       if (el) el.classList.remove("dragging");
-      if (start && !start.moved) { inspectorOpen = true; render(); }
+      if (start && !start.moved) render();
       else renderChecks();
     }
     if (mode === "ghost") {

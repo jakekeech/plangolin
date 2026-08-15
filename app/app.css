@@ -548,6 +548,20 @@
   .node.dragging { cursor: grabbing; }
   .node.ghost { opacity: .4; border-style: dashed; }
 
+  .node-edit {
+    position: absolute; top: -10px; right: -10px; z-index: 3;
+    display: grid; place-items: center; width: 22px; height: 22px;
+    padding: 0; border: 1.75px solid var(--ink); border-radius: 50%;
+    color: var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--pine);
+    cursor: pointer; opacity: 0; pointer-events: none;
+    transform: scale(.88); transition: opacity .12s, transform .12s;
+  }
+  .node:hover .node-edit, .node-edit:focus-visible {
+    opacity: 1; pointer-events: auto; transform: scale(1);
+  }
+  .node-edit:hover { color: var(--paper); background: var(--pine); }
+  .node-edit:focus-visible { outline: 2px solid var(--pine); outline-offset: 2px; }
+
   .node-top { display: flex; align-items: center; gap: 7px; padding: 7px 10px 5px; }
   .node-top svg { flex: none; color: var(--ink); }
   .node-kind {
@@ -1427,10 +1441,33 @@
   .shell[data-plan-spot="on"] .node { opacity: .2; }
   .shell[data-plan-spot="on"] .node[data-lit="true"] {
     opacity: 1;
-    box-shadow: 0 0 0 5px color-mix(in oklab, var(--pine) 18%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--pine) 28%, transparent);
+  }
+  .shell[data-plan-spot="on"] .node[data-lit="true"][data-spot-label]::after {
+    content: attr(data-spot-label);
+    position: absolute; right: -2px; bottom: -19px; z-index: 3;
+    max-width: calc(100% + 4px); padding: 1px 6px 2px;
+    overflow: hidden; text-overflow: ellipsis;
+    font-family: var(--mono); font-size: 8px; line-height: 1.2;
+    letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+    color: var(--paper); background: var(--pine);
+    border: 1.5px solid var(--pine); border-top: 0;
+    border-radius: 0 0 4px 4px;
   }
   .shell[data-plan-spot="on"] .node[data-reach="true"] {
-    opacity: .68; outline: 1.5px dashed var(--pine-soft); outline-offset: 4px;
+    opacity: .4;
+    outline: 1.5px solid var(--missing); outline-offset: 4px;
+    box-shadow: none;
+  }
+  .shell[data-plan-spot="on"] .node[data-reach="true"]::after {
+    content: "may be affected";
+    position: absolute; right: -2px; bottom: -19px; z-index: 3;
+    padding: 1px 6px 2px;
+    font-family: var(--mono); font-size: 8px; line-height: 1.2;
+    letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+    color: var(--missing); background: var(--missing-wash);
+    border: 1.5px solid var(--missing); border-top: 0;
+    border-radius: 0 0 4px 4px;
   }
   .shell[data-plan-spot="on"] .wires path { opacity: .12; }
   .shell[data-plan-spot="on"] .wires path[data-lit="true"] { opacity: 1; }
@@ -1458,7 +1495,7 @@
      underneath it. Opens rightward, into the space the sheet leaves. */
   .askwrap {
     position: absolute; left: 14px; top: 14px; z-index: 16;
-    display: flex; flex-direction: row-reverse; align-items: center;
+    display: flex; flex-direction: row-reverse; align-items: flex-start;
     justify-content: flex-start; gap: 8px;
   }
   .ask {
