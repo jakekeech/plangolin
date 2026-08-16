@@ -26,7 +26,7 @@ export function proposalKey(kind, a, b) {
   return kind === "edge" ? `edge:${a}>${b}` : `${kind}:${a}`;
 }
 
-export function buildBrief({ nodes, steps, delta, reach = [], accepted, truncated = false }) {
+export function buildBrief({ nodes, steps, delta, reach = [], accepted, remarks = new Map(), truncated = false }) {
   const names = new Map((nodes || []).map((n) => [n.id, n.name || n.id]));
   const d = {
     additions: delta.additions || [], touches: delta.touches || [],
@@ -104,14 +104,18 @@ export function buildBrief({ nodes, steps, delta, reach = [], accepted, truncate
   }
 
   const cut = [
-    ...d.additions.filter((a) => !ok("add", a.id)).map((a) => `${a.name} — ${a.intent}`),
-    ...d.touches.filter((t) => !ok("touch", t.id)).map((t) => `${nameOf(t.id)} — ${t.why}`),
+    ...d.additions.filter((a) => !ok("add", a.id)).map((a) => ({ key: proposalKey("add", a.id), line: `${a.name} — ${a.intent}` })),
+    ...d.touches.filter((t) => !ok("touch", t.id)).map((t) => ({ key: proposalKey("touch", t.id), line: `${nameOf(t.id)} — ${t.why}` })),
     ...d.connections.filter((c) => !edges.includes(c))
-      .map((c) => `${nameOf(c.from)} ──▶ ${nameOf(c.to)} (${c.label})`),
+      .map((c) => ({ key: proposalKey("edge", c.from, c.to), line: `${nameOf(c.from)} ──▶ ${nameOf(c.to)} (${c.label})` })),
   ];
   if (cut.length) {
     out.push("OUT OF SCOPE — the user removed these. Do not build them.");
-    for (const line of cut) out.push(`  ✗ ${line}`);
+    for (const item of cut) {
+      out.push(`  ✗ ${item.line}`);
+      const remark = String(remarks.get(item.key) || "").trim();
+      if (remark) out.push(`    User's reason: ${remark}`);
+    }
     out.push("");
   }
 

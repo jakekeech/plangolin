@@ -1,4 +1,5 @@
 import { generatedPositions, layeredPositions } from "./graph-layout.js";
+import { planPanDelta } from "./plan-camera.js";
 import { dockPlanAndHint, planHintPosition } from "./plan-hint-motion.js";
 import { createRolledLoader } from "./rolled-loader.js";
 
@@ -602,6 +603,7 @@ import { createRolledLoader } from "./rolled-loader.js";
      avoid it would be the first dependency in the product. */
   let plan = null;
   let planCut = new Set();          // proposal keys the user has crossed out
+  let planRemarks = new Map();      // optional user guidance for each cut proposal
   let planAt = 0;                   // which proposal the stepper is showing
   let planSending = false;          // an answer is in flight; see sendAnswer
   /* Whether /api/doc handed us a document. A review opens either way — see
@@ -2542,6 +2544,9 @@ import { createRolledLoader } from "./rolled-loader.js";
 
     const cut = document.getElementById("plan-cut");
     const keep = document.getElementById("plan-keep");
+    const remark = document.getElementById("plan-remark");
+    const remarkInput = document.getElementById("plan-remark-input");
+    remark.hidden = true;
     if (s.summary) {
       const kept = list.filter((x) => !x.summary && !planCut.has(x.key)).length;
       const gone = list.filter((x) => !x.summary && planCut.has(x.key)).length;
@@ -2616,6 +2621,9 @@ import { createRolledLoader } from "./rolled-loader.js";
       foot.dataset.stage = "step";
       keep.classList.toggle("on", !planCut.has(s.key));
       cut.classList.toggle("on", planCut.has(s.key));
+      const isCut = planCut.has(s.key);
+      remark.hidden = !isCut;
+      remarkInput.value = isCut ? (planRemarks.get(s.key) || "") : "";
     }
     document.getElementById("plan-panel-cut") && 0;
     document.getElementById("plan-prev").disabled = planAt === 0;
@@ -2683,7 +2691,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (lit && lit.length) bringIntoView(lit);
   }
 
-  /* Bring the blocks a step is about into view, without re-fitting the whole
+  /* Bring the step's primary block into view, without re-fitting the whole
      sheet. Re-fitting on every step would rescale the drawing under the
      reader four times in a row, and the thing they are being asked to judge
      is where a block sits relative to the others. */
@@ -2695,25 +2703,25 @@ import { createRolledLoader } from "./rolled-loader.js";
       return g ? { x: g.x, y: g.y, h: GHOST_H } : null;
     }).filter(Boolean);
     if (!boxes.length) return;
-    const x0 = Math.min(...boxes.map((b) => b.x)), y0 = Math.min(...boxes.map((b) => b.y));
-    const x1 = Math.max(...boxes.map((b) => b.x + NODE_W));
-    const y1 = Math.max(...boxes.map((b) => b.y + b.h));
     const panel = document.getElementById("planpanel").getBoundingClientRect();
     const cr = canvas.getBoundingClientRect();
-    const pad = 40;
-    const L = pad, R = canvas.clientWidth - pad, T = pad, B = canvas.clientHeight - pad;
-    const sx0 = x0 * zoom + pan.x, sy0 = y0 * zoom + pan.y;
-    const sx1 = x1 * zoom + pan.x, sy1 = y1 * zoom + pan.y;
-    // Clear of the panel too — it is the thing asking the question, so it must
-    // not be sitting on top of the answer.
-    const pl = panel.left - cr.left, pr = panel.right - cr.left;
-    const pt = panel.top - cr.top, pb = panel.bottom - cr.top;
-    const hits = sx1 > pl && sx0 < pr && sy1 > pt && sy0 < pb;
-    let dx = 0, dy = 0;
-    if (sx0 < L) dx = L - sx0; else if (sx1 > R) dx = R - sx1;
-    if (sy0 < T) dy = T - sy0; else if (sy1 > B) dy = B - sy1;
-    if (hits && !dx) dx = (pl - 24) - sx1 > -9999 ? Math.min(0, (pl - 24) - sx1) : 0;
-    if (dx || dy) panTo(pan.x + dx, pan.y + dy, zoom);
+    const targets = boxes.map((box) => ({
+      left: box.x * zoom + pan.x,
+      top: box.y * zoom + pan.y,
+      right: (box.x + NODE_W) * zoom + pan.x,
+      bottom: (box.y + box.h) * zoom + pan.y,
+    }));
+    const delta = planPanDelta({
+      targets,
+      viewport: { width: canvas.clientWidth, height: canvas.clientHeight },
+      occlusion: {
+        left: panel.left - cr.left,
+        top: panel.top - cr.top,
+        right: panel.right - cr.left,
+        bottom: panel.bottom - cr.top,
+      },
+    });
+    if (delta.x || delta.y) panTo(pan.x + delta.x, pan.y + delta.y, zoom);
   }
 
   /* What you asked for, in the corner the bulb used to hold. A plan is judged
@@ -2836,8 +2844,12 @@ import { createRolledLoader } from "./rolled-loader.js";
     const list = planStepList();
     const s = list[planAt];
     if (!s || s.summary) return;
-    cutIt ? planCut.add(s.key) : planCut.delete(s.key);
-    renderPlan();
+    if (cutIt) planCut.add(s.key);
+    else {
+      planCut.delete(s.key);
+      planRemarks.delete(s.key);
+    }
+    renderPlan({ focus: false });
     drawPlan();
   }
 
@@ -2845,12 +2857,9 @@ import { createRolledLoader } from "./rolled-loader.js";
     const list = planStepList();
     planAt = Math.max(0, Math.min(list.length - 1, planAt + delta));
     const step = list[planAt];
-    // Potential impact is part of the step's context. Choose a view that can
-    // show both the direct subject and its affected callers; otherwise opening
-    // the subject's parent would hide the amber nodes in another branch.
-    const visibleIds = step && !step.summary
-      ? [...step.lit, ...(step.reach || []).map((r) => r.id)]
-      : [];
+    // Potential-impact nodes are context only. The primary subject chooses the
+    // view and drives the camera so the reader always knows where to focus.
+    const visibleIds = step && !step.summary && step.lit.length ? [step.lit[0]] : [];
     const nextView = visibleIds.length ? planViewFor(visibleIds) : null;
     const changesView = nextView !== viewRoot;
     renderPlan({ focus: !changesView });
@@ -2860,7 +2869,15 @@ import { createRolledLoader } from "./rolled-loader.js";
   document.getElementById("plan-next").addEventListener("click", () => planGo(1));
   document.getElementById("plan-prev").addEventListener("click", () => planGo(-1));
   document.getElementById("plan-keep").addEventListener("click", () => { planDecide(false); planGo(1); });
-  document.getElementById("plan-cut").addEventListener("click", () => { planDecide(true); planGo(1); });
+  document.getElementById("plan-cut").addEventListener("click", () => {
+    planDecide(true);
+    document.getElementById("plan-remark-input").focus();
+  });
+  document.getElementById("plan-remark-input").addEventListener("input", (ev) => {
+    const s = planStepList()[planAt];
+    if (!s || s.summary || !planCut.has(s.key)) return;
+    planRemarks.set(s.key, ev.target.value);
+  });
 
   /* Reviewing is a reading task, and six decisions is six round trips to the
      mouse otherwise. */
@@ -2872,7 +2889,10 @@ import { createRolledLoader } from "./rolled-loader.js";
     if (ev.key === "ArrowRight") { planGo(1); ev.preventDefault(); }
     else if (ev.key === "ArrowLeft") { planGo(-1); ev.preventDefault(); }
     else if (ev.key === "k" || ev.key === "K") { planDecide(false); planGo(1); }
-    else if (ev.key === "c" || ev.key === "C") { planDecide(true); planGo(1); }
+    else if (ev.key === "c" || ev.key === "C") {
+      planDecide(true);
+      document.getElementById("plan-remark-input").focus();
+    }
   });
 
 
@@ -2952,6 +2972,7 @@ import { createRolledLoader } from "./rolled-loader.js";
     sendAnswer({
       id: plan.id,
       accepted,
+      remarks: Object.fromEntries([...planRemarks].filter(([key]) => planCut.has(key))),
       nodes: S.nodes.map((n) => ({ id: n.id, name: n.name, intent: n.intent })),
     }, { kept: accepted.length, cut: all.length - accepted.length });
   });
@@ -2981,7 +3002,11 @@ import { createRolledLoader } from "./rolled-loader.js";
       // A new review starts with everything accepted. Rejecting is the
       // deliberate act; requiring a click per block to approve a plan you
       // agree with would make the common case the expensive one.
-      if (plan && plan.status === "ready") { planCut = new Set(); planAt = 0; }
+      if (plan && plan.status === "ready") {
+        planCut = new Set();
+        planRemarks = new Map();
+        planAt = 0;
+      }
       /* thinking -> ready is when the panel gains its content and the sheet
          gains its ghosts. Both change what a fit should produce, so this is
          the moment to compute one. */

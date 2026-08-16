@@ -214,7 +214,7 @@ export function createPlanStore() {
       }
     },
 
-    resolve(id, { accepted, skipped, nodes }) {
+    resolve(id, { accepted, remarks, skipped, nodes }) {
       if (!review || review.id !== id || decided(review)) return false;
       /* Skipping is allowed at any point, including mid-spinner: somebody who
          gives up on a slow model would otherwise leave the blocked command
@@ -247,6 +247,8 @@ export function createPlanStore() {
          genuinely empty project with nothing to scan — does the caller's list
          stand in for it. */
       const posted = sheetNodes(nodes);
+      const cutRemarks = new Map(Object.entries(
+        remarks && typeof remarks === "object" && !Array.isArray(remarks) ? remarks : {}));
       const renamed = new Map(
         posted.filter((n) => typeof n.name === "string" && n.name.trim()).map((n) => [n.id, n.name]));
       const known = review.nodes || [];
@@ -257,6 +259,7 @@ export function createPlanStore() {
         steps: review.steps, delta: review.delta, truncated: !!review.truncated,
         reach: review.reach,
         accepted: new Set(Array.isArray(accepted) ? accepted : []),
+        remarks: cutRemarks,
       });
       review.status = "resolved";
       scanning = null; // this review is over; its scan answers no one else

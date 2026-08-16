@@ -1309,6 +1309,30 @@
   }
   .plan-dot.kept { background: var(--pine-soft); border-color: var(--pine-soft); }
   .plan-dot.cut { background: var(--ink-faint); border-color: var(--ink-faint); opacity: .5; }
+
+  .plan-remark {
+    margin-top: 12px;
+    padding-top: 11px;
+    border-top: 1px solid var(--rule, rgba(27,27,25,.12));
+  }
+  .plan-remark[hidden] { display: none; }
+  .plan-remark label {
+    display: block;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.35;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .plan-remark label span { color: var(--ink-faint); }
+  .plan-remark textarea {
+    min-height: 64px;
+    max-height: 150px;
+    resize: vertical;
+    font-size: 12px;
+  }
   .plan-dot.now { background: var(--pine); border-color: var(--pine); transform: scale(1.2); }
   .plan-of {
     font-family: var(--mono); font-size: 11px;

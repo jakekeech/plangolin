@@ -256,8 +256,8 @@ export function createServer(ws, plans = createPlanStore()) {
       }
 
       if (url.pathname === "/api/plan/resolve" && req.method === "POST") {
-        const { id, accepted, skipped, nodes } = await readBody(req);
-        return json(res, 200, { ok: plans.resolve(id, { accepted, skipped, nodes }) });
+        const { id, accepted, remarks, skipped, nodes } = await readBody(req);
+        return json(res, 200, { ok: plans.resolve(id, { accepted, remarks, skipped, nodes }) });
       }
 
       // Held open, then answered "pending" so the caller asks again. Twenty-five

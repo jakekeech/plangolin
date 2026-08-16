@@ -77,6 +77,30 @@ test("a resolve releases a waiting result and returns the brief", async () => {
   } finally { await s.close(); }
 });
 
+test("a cut remark reaches the resolved brief", async () => {
+  const plans = createPlanStore();
+  const { id } = plans.open({ plan: "1. Add calendar support\n" });
+  plans.setDelta(id, {
+    delta: {
+      additions: [{ id: "calendar", name: "Calendar", intent: "Reads busy times.", steps: [1] }],
+      touches: [], connections: [], unplaced: [],
+    },
+    dropped: [],
+  });
+  const s = await listen(plans);
+  try {
+    const out = await post(s.base, "/api/plan/resolve", {
+      id,
+      accepted: [],
+      remarks: { "add:calendar": "Keep this change local-only." },
+      nodes: SHEET.nodes,
+    });
+    assert.equal(out.ok, true);
+    const result = await fetch(`${s.base}/api/plan/result?id=${id}`).then((r) => r.json());
+    assert.match(result.brief, /User's reason: Keep this change local-only\./);
+  } finally { await s.close(); }
+});
+
 test("asking for a result with no review reports it gone", async () => {
   const s = await listen(createPlanStore());
   try {

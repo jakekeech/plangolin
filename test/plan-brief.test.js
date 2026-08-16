@@ -66,6 +66,19 @@ test("a rejected connection is named too", () => {
   assert.match(brief, /✗ Server ──▶ Limiter/);
 });
 
+test("a rejected proposal carries the user's remark into Claude's brief", () => {
+  const key = proposalKey("add", "counters");
+  const brief = buildBrief({
+    nodes: NODES,
+    steps: STEPS,
+    delta: DELTA,
+    accepted: new Set([proposalKey("add", "limiter")]),
+    remarks: new Map([[key, "This request is only about the calendar."]]),
+  });
+  assert.match(brief, /✗ Counter store — Holds counts across restarts\./);
+  assert.match(brief, /User's reason: This request is only about the calendar\./);
+});
+
 test("an accepted touch lands under UPDATE with its reason", () => {
   const brief = buildBrief({
     nodes: NODES, steps: STEPS, delta: DELTA,
